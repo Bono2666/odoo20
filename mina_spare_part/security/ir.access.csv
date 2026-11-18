@@ -11,3 +11,7 @@ access_mina_part_rate_history_user,mina.part.rate.history.user,mina.part.rate.hi
 access_mina_part_rate_history_manager,mina.part.rate.history.manager,mina.part.rate.history,mina_spare_part_group_manager,cr,
 mina_part_rate_history_comp_rule,mina.part.rate.history multi-company,mina.part.rate.history,,crud,"[('company_id', 'in', company_ids)]"
 access_mina_part_rate_update_manager,mina.part.rate.update.manager,mina.part.rate.update,mina_spare_part_group_manager,crud,
+access_mina_part_substitute_wizard_sale,mina.part.substitute.wizard.sale,mina.part.substitute.wizard,sales_team.group_sale_salesman,crud,
+access_mina_part_substitute_wizard_purchase,mina.part.substitute.wizard.purchase,mina.part.substitute.wizard,purchase.group_purchase_user,crud,
+access_mina_part_substitute_wizard_line_sale,mina.part.substitute.wizard.line.sale,mina.part.substitute.wizard.line,sales_team.group_sale_salesman,crud,
+access_mina_part_substitute_wizard_line_purchase,mina.part.substitute.wizard.line.purchase,mina.part.substitute.wizard.line,purchase.group_purchase_user,crud,

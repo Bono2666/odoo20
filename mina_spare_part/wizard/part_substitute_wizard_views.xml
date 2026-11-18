@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="mina_part_substitute_wizard_view_form" model="ir.ui.view">
+        <field name="name">mina.part.substitute.wizard.view.form</field>
+        <field name="model">mina.part.substitute.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Ganti dengan Part Substitusi">
+                <group>
+                    <group>
+                        <field name="product_tmpl_id" options="{'no_open': True}"/>
+                        <field name="part_availability" widget="badge"
+                               decoration-success="part_availability == 'available'"
+                               decoration-warning="part_availability == 'substituted'"
+                               decoration-danger="part_availability == 'discontinued'"/>
+                    </group>
+                    <group>
+                        <field name="qty_available"/>
+                    </group>
+                </group>
+                <field name="line_ids" readonly="1">
+                    <list create="0" delete="0">
+                        <field name="currency_id" column_invisible="True"/>
+                        <field name="level"/>
+                        <field name="default_code"/>
+                        <field name="product_tmpl_id"/>
+                        <field name="part_availability" widget="badge"
+                               decoration-success="part_availability == 'available'"
+                               decoration-warning="part_availability == 'substituted'"
+                               decoration-danger="part_availability == 'discontinued'"/>
+                        <field name="qty_available" decoration-danger="qty_available &lt;= 0"
+                               decoration-success="qty_available &gt; 0"/>
+                        <field name="part_stock_jpn" optional="show"/>
+                        <field name="part_lead_time" optional="show"/>
+                        <field name="part_reseller_price" optional="show"/>
+                        <field name="list_price" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                        <button name="action_select" type="object" string="Pilih" icon="fa-check" class="btn-primary"/>
+                    </list>
+                </field>
+                <footer>
+                    <button string="Batal" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

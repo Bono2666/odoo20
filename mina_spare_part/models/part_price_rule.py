@@ -80,6 +80,11 @@ class MinaPartPriceRule(models.Model):
         help="Jika diisi, harga reseller juga disimpan sebagai harga tetap (fixed price) di pricelist ini, "
              "sehingga bisa dipakai di penawaran/order penjualan untuk customer reseller.",
     )
+    vendor_id = fields.Many2one(
+        'res.partner', string="Vendor Principal", check_company=True, tracking=True,
+        help="Jika diisi, Harga Principal, mata uang dan lead time setiap part disimpan sebagai harga vendor "
+             "(tab Purchase pada produk), sehingga Purchase Order ke principal otomatis memakai harga tersebut.",
+    )
     price_rounding = fields.Float(
         string="Pembulatan Harga Jual", default=1.0, tracking=True,
         help="Harga jual dibulatkan ke kelipatan nilai ini, misalnya 100 atau 1000. Isi 0 untuk tanpa pembulatan.",
@@ -114,6 +119,12 @@ class MinaPartPriceRule(models.Model):
     recompute_last_id = fields.Integer(readonly=True, copy=False)
     recompute_user_id = fields.Many2one('res.users', readonly=True, copy=False)
     recompute_history_id = fields.Many2one('mina.part.rate.history', readonly=True, copy=False)
+    # Background sync of the vendor prices (big catalogs)
+    vendor_sync_state = fields.Selection(
+        [('pending', "Sedang Disinkronkan"), ('done', "Selesai")], string="Status Sinkron Harga Vendor",
+        readonly=True, copy=False,
+    )
+    vendor_sync_last_id = fields.Integer(readonly=True, copy=False)
 
     _category_company_uniq = models.Constraint(
         'UNIQUE(category_id, company_id)',
@@ -177,8 +188,44 @@ class MinaPartPriceRule(models.Model):
                 raise ValidationError(self.env._("Diskon supplier harus antara 0 dan 100%."))
 
     # ------------------------------------------------------------------
+    # CRUD
+    # ------------------------------------------------------------------
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        rules = super().create(vals_list)
+        rules.filtered('vendor_id')._start_vendor_sync()
+        return rules
+
+    def write(self, vals):
+        res = super().write(vals)
+        if vals.get('vendor_id'):
+            self._start_vendor_sync()
+        return res
+
+    # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
+
+    def action_sync_vendor_prices(self):
+        self.ensure_one()
+        if not self.vendor_id:
+            raise UserError(self.env._("Isi Vendor Principal terlebih dahulu."))
+        synced, background = self._start_vendor_sync()
+        if background:
+            message = self.env._("Harga vendor sedang disinkronkan di background karena jumlah part besar.")
+        else:
+            message = self.env._("%s harga vendor dibuat atau diupdate.", synced)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'type': 'success',
+                'title': self.env._("Sinkron harga vendor"),
+                'message': message,
+                'next': {'type': 'ir.actions.client', 'tag': 'soft_reload'},
+            },
+        }
 
     def action_apply_prices(self):
         self.ensure_one()
@@ -300,8 +347,106 @@ class MinaPartPriceRule(models.Model):
                 )
                 if not Cron._commit_progress(len(products), remaining=remaining + (rule.recompute_state == 'pending')):
                     break
-        if self.search_count([('recompute_state', '=', 'pending')], limit=1):
+        self._cron_sync_vendor_prices()
+        if self.search_count(['|', ('recompute_state', '=', 'pending'), ('vendor_sync_state', '=', 'pending')], limit=1):
             self.env.ref('mina_spare_part.ir_cron_mina_part_recompute')._trigger()
+
+    def _start_vendor_sync(self):
+        """Sync the vendor prices of all the parts of the rules: right away for a small catalog,
+        by the background job otherwise.
+
+        :return: (number of vendor prices created or updated, rules synced in background)
+        """
+        synced = 0
+        background = self.browse()
+        for rule in self.filtered('vendor_id'):
+            if self.env['product.template'].search_count(rule._get_products_domain()) > RECOMPUTE_SYNC_LIMIT:
+                background |= rule
+                continue
+            synced += rule._sync_vendor_prices(rule._get_products())
+            rule.vendor_sync_state = 'done'
+        if background:
+            background.write({'vendor_sync_state': 'pending', 'vendor_sync_last_id': 0})
+            self.env.ref('mina_spare_part.ir_cron_mina_part_recompute')._trigger()
+        return synced, background
+
+    @api.model
+    def _cron_sync_vendor_prices(self):
+        Cron = self.env['ir.cron']
+        for rule in self.search([('vendor_sync_state', '=', 'pending')]):
+            rule = rule.with_company(rule.company_id)
+            while rule.vendor_sync_state == 'pending':
+                domain = Domain(rule._get_products_domain()) & Domain('id', '>', rule.vendor_sync_last_id)
+                products = self.env['product.template'].with_company(rule.company_id).search(
+                    list(domain), order='id', limit=RECOMPUTE_BATCH_SIZE,
+                )
+                if products and rule.vendor_id:
+                    rule._sync_vendor_prices(products)
+                    rule.vendor_sync_last_id = products[-1].id
+                else:
+                    rule.vendor_sync_state = 'done'
+                remaining = self.env['product.template'].search_count(
+                    list(Domain(rule._get_products_domain()) & Domain('id', '>', rule.vendor_sync_last_id)),
+                )
+                if not Cron._commit_progress(len(products), remaining=remaining + (rule.vendor_sync_state == 'pending')):
+                    return
+
+    def _sync_vendor_prices(self, templates):
+        """Create or update the vendor price of the principal vendor for the given parts.
+
+        Only the vendor prices without variant, validity dates and of the rule company (or shared)
+        are managed; other vendor prices of the principal are left untouched.
+
+        :return: number of vendor prices created or updated
+        """
+        self.ensure_one()
+        vendor = self.vendor_id
+        templates = templates.filtered(lambda t: t.part_list_price > 0)
+        if not vendor or not templates:
+            return 0
+        Supplierinfo = self.env['product.supplierinfo'].with_company(self.company_id)
+        infos = Supplierinfo.search([
+            ('partner_id', '=', vendor.id),
+            ('product_tmpl_id', 'in', templates.ids),
+            ('product_id', '=', False),
+            ('company_id', 'in', [self.company_id.id, False]),
+            ('date_start', '=', False),
+            ('date_end', '=', False),
+        ])
+        info_by_template = {}
+        for info in infos:
+            info_by_template.setdefault(info.product_tmpl_id.id, info)
+        to_create = []
+        count = 0
+        for template in templates:
+            currency = template.part_currency_id or self.currency_id
+            info = info_by_template.get(template.id)
+            if not info:
+                to_create.append({
+                    'partner_id': vendor.id,
+                    'product_tmpl_id': template.id,
+                    'company_id': self.company_id.id,
+                    'price': template.part_list_price,
+                    'currency_id': currency.id,
+                    'product_code': template.default_code or False,
+                    'delay': template.part_lead_time if template.part_lead_time > 0 else 1,
+                })
+                continue
+            vals = {}
+            if float_compare(info.price, template.part_list_price, precision_digits=4):
+                vals['price'] = template.part_list_price
+            if info.currency_id != currency:
+                vals['currency_id'] = currency.id
+            if (info.product_code or False) != (template.default_code or False):
+                vals['product_code'] = template.default_code or False
+            if template.part_lead_time > 0 and info.delay != template.part_lead_time:
+                vals['delay'] = template.part_lead_time
+            if vals:
+                info.write(vals)
+                count += 1
+        if to_create:
+            Supplierinfo.create(to_create)
+        return count + len(to_create)
 
     def _get_rate(self, currency=None, date=None):
         """Kurs: value of 1 unit of the list price currency in company currency."""

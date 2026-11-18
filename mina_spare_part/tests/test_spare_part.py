@@ -3,7 +3,8 @@ from unittest.mock import patch
 
 import openpyxl
 
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
+from odoo.fields import Command
 from odoo.tools import BinaryBytes
 from odoo.tests import TransactionCase, tagged
 
@@ -352,3 +353,139 @@ class TestSparePart(TransactionCase):
             ring.part_change_log_ids.filtered(lambda log: log.field_name == 'list_price' and log.source == 'rule').new_value,
             '277,200',
         )
+
+    # ------------------------------------------------------------------
+    # Integration with Inventory, Purchase and Sales
+    # ------------------------------------------------------------------
+
+    def test_imported_parts_track_inventory(self):
+        self._import([self.header, ["S-1", "Gasket", "", 10]])
+        part = self._part('S-1')
+        self.assertTrue(part.is_storable)
+        self.assertEqual(part.type, 'consu')
+
+    def test_vendor_price_sync(self):
+        vendor = self.env['res.partner'].create({'name': "Principal Jepang"})
+        self.engine_rule.vendor_id = vendor
+        header = self.header + ["Lead Time"]
+        self._import([header, ["V-1", "Bearing", "", 10, 30], ["V-2", "No Price", "", "", 5]])
+        bearing = self._part('V-1')
+        info = bearing.seller_ids
+        self.assertEqual(len(info), 1)
+        self.assertEqual(info.partner_id, vendor)
+        self.assertAlmostEqual(info.price, 10.0)
+        self.assertEqual(info.currency_id, self.usd)
+        self.assertEqual(info.delay, 30)
+        self.assertEqual(info.product_code, 'V-1')
+        self.assertFalse(self._part('V-2').seller_ids, "No vendor price without principal price")
+
+        # Re-import with a new price updates the same vendor price
+        self._import([header, ["V-1", "Bearing", "", 12.5, 45]])
+        self.assertEqual(bearing.seller_ids, info)
+        self.assertAlmostEqual(info.price, 12.5)
+        self.assertEqual(info.delay, 45)
+
+        # Manual change of the principal price
+        bearing.part_list_price = 13.0
+        self.assertAlmostEqual(info.price, 13.0)
+
+        # Purchase order to the principal uses the vendor price
+        order = self.env['purchase.order'].create({
+            'partner_id': vendor.id,
+            'currency_id': self.usd.id,
+            'order_line': [Command.create({'product_id': bearing.product_variant_id.id, 'product_qty': 2})],
+        })
+        self.assertAlmostEqual(order.order_line.price_unit, 13.0)
+
+    def test_vendor_price_sync_existing_parts_in_background(self):
+        self._import([self.header, ["W-1", "Valve", "", 10], ["W-2", "Spring", "", 20]], part_type='airend')
+        vendor = self.env['res.partner'].create({'name': "Principal Airend"})
+        with patch.object(part_price_rule_module, 'RECOMPUTE_SYNC_LIMIT', 1):
+            self.airend_rule.vendor_id = vendor
+        self.assertEqual(self.airend_rule.vendor_sync_state, 'pending')
+        with self._commit_patch(), patch.object(part_price_rule_module, 'RECOMPUTE_BATCH_SIZE', 1):
+            self.env['mina.part.price.rule']._cron_recompute_prices()
+        self.assertEqual(self.airend_rule.vendor_sync_state, 'done')
+        spring = self._part('W-2', 'airend')
+        self.assertEqual(spring.seller_ids.partner_id, vendor)
+        self.assertAlmostEqual(spring.seller_ids.price, 20.0)
+        # Running the sync again does not duplicate the vendor prices
+        self.airend_rule.action_sync_vendor_prices()
+        self.assertEqual(len(spring.seller_ids), 1)
+
+    def _substitute_chain(self):
+        self._import([
+            self.header,
+            ["C-OLD", "Filter Lama", "C-NEW", 10],
+            ["C-NEW", "Filter Baru", "C-NEWER", 11],
+            ["C-NEWER", "Filter Terbaru", "", 12],
+        ])
+        old, new, newer = self._part('C-OLD'), self._part('C-NEW'), self._part('C-NEWER')
+        old.part_availability = 'substituted'
+        return old, new, newer
+
+    def test_sale_order_substitute(self):
+        old, new, newer = self._substitute_chain()
+        customer = self.env['res.partner'].create({'name': "Customer Part"})
+        order = self.env['sale.order'].create({
+            'partner_id': customer.id,
+            'order_line': [Command.create({'product_id': old.product_variant_id.id, 'product_uom_qty': 3})],
+        })
+        line = order.order_line
+        self.assertEqual(line.mina_substitute_count, 1)
+        self.assertEqual(line.mina_part_availability, 'substituted')
+        warning = line._mina_onchange_product_substitute()
+        self.assertIn('C-NEW', warning['warning']['message'])
+        self.assertIn('C-NEWER', warning['warning']['message'])
+
+        action = line.action_mina_open_substitute()
+        wizard = self.env['mina.part.substitute.wizard'].browse(action['res_id'])
+        self.assertEqual(wizard.line_ids.mapped('product_tmpl_id'), new | newer)
+        self.assertEqual(wizard.line_ids.mapped('level'), [1, 2])
+        wizard.line_ids.filtered(lambda l: l.product_tmpl_id == newer).action_select()
+
+        self.assertEqual(line.product_id, newer.product_variant_id)
+        self.assertEqual(line.product_uom_qty, 3)
+        reference = self.env['sale.order.line'].create({
+            'order_id': order.id, 'product_id': newer.product_variant_id.id, 'product_uom_qty': 1,
+        })
+        self.assertAlmostEqual(line.price_unit, reference.price_unit)
+        self.assertIn('C-NEWER', order.message_ids[0].body)
+
+        order.action_confirm()
+        with self.assertRaises(UserError):
+            line.action_mina_open_substitute()
+
+    def test_sale_warning_out_of_stock_with_substitute(self):
+        old, new, newer = self._substitute_chain()
+        # Available part, out of stock, with a substitute: warn on sales only
+        self.assertTrue(new._mina_substitute_warning(check_stock=True))
+        self.assertFalse(new._mina_substitute_warning(check_stock=False))
+        # No substitute and available: no warning
+        self.assertFalse(newer._mina_substitute_warning(check_stock=True))
+        newer.part_availability = 'discontinued'
+        self.assertIn("Tidak ada part substitusi", newer._mina_substitute_warning())
+
+    def test_purchase_order_substitute(self):
+        old, new, newer = self._substitute_chain()
+        vendor = self.env['res.partner'].create({'name': "Principal"})
+        self.engine_rule.vendor_id = vendor
+        order = self.env['purchase.order'].create({
+            'partner_id': vendor.id,
+            'currency_id': self.usd.id,
+            'order_line': [Command.create({'product_id': old.product_variant_id.id, 'product_qty': 4})],
+        })
+        line = order.order_line
+        self.assertAlmostEqual(line.price_unit, 10.0)
+        self.assertTrue(line._mina_onchange_product_substitute())
+        action = line.action_mina_open_substitute()
+        wizard = self.env['mina.part.substitute.wizard'].browse(action['res_id'])
+        wizard.line_ids.filtered(lambda l: l.product_tmpl_id == new).action_select()
+        self.assertEqual(line.product_id, new.product_variant_id)
+        self.assertEqual(line.product_qty, 4)
+        self.assertAlmostEqual(line.price_unit, 11.0)
+        reference = self.env['purchase.order.line'].create({
+            'order_id': order.id, 'product_id': new.product_variant_id.id, 'product_qty': 1,
+        })
+        self.assertEqual(line.name, reference.name)
+        self.assertEqual(line.uom_id, reference.uom_id)

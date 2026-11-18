@@ -16,6 +16,8 @@ from .product_template import (
     LOG_IMPORT_KEY,
     LOG_SOURCE_KEY,
     SKIP_SUBSTITUTE_KEY,
+    SKIP_VENDOR_SYNC_KEY,
+    VENDOR_SYNC_FIELDS,
     split_part_numbers,
 )
 
@@ -511,6 +513,7 @@ class MinaPartImport(models.Model):
             LOG_SOURCE_KEY: 'import',
             LOG_IMPORT_KEY: self.id,
             SKIP_SUBSTITUTE_KEY: True,
+            SKIP_VENDOR_SYNC_KEY: True,
         })
 
     def _parse_rows(self, rows, first_row_number, table, seen):
@@ -657,6 +660,7 @@ class MinaPartImport(models.Model):
             'default_code': values['default_code'],
             'categ_id': (values.get('categ') or self.categ_id).id,
             'type': 'consu',
+            'is_storable': True,
             'sale_ok': True,
             'purchase_ok': True,
             'list_price': 0.0,
@@ -706,6 +710,7 @@ class MinaPartImport(models.Model):
 
         to_create = []
         to_price = Template.browse()
+        to_sync_vendor = Template.browse()
         for row in parsed:
             values, line = row['values'], row['line']
             product = by_code.get(values['default_code'])
@@ -727,6 +732,8 @@ class MinaPartImport(models.Model):
                 product.write(vals)
                 if {'part_list_price', 'part_currency_id', 'categ_id'} & vals.keys():
                     to_price |= product
+                if VENDOR_SYNC_FIELDS & vals.keys():
+                    to_sync_vendor |= product
                 line_vals.append({**line, 'status': 'updated', 'product_tmpl_id': product.id,
                                   'message': self.env._("Berubah: %s", changed)})
 
@@ -734,6 +741,8 @@ class MinaPartImport(models.Model):
         for row, product in zip(to_create, created):
             line_vals.append({**row['line'], 'status': 'created', 'product_tmpl_id': product.id})
         to_price |= created
+        # Vendor prices are synced once per batch instead of once per product.
+        (to_sync_vendor | created).with_context(**{SKIP_VENDOR_SYNC_KEY: False})._mina_sync_vendor_prices()
 
         priced = unpriced = 0
         if self.apply_pricing and to_price:

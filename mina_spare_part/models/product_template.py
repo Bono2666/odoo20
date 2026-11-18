@@ -11,6 +11,12 @@ LOG_IMPORT_KEY = 'mina_part_import_id'
 LOG_RULE_KEY = 'mina_part_rule_id'
 NO_LOG_KEY = 'mina_part_no_log'
 SKIP_SUBSTITUTE_KEY = 'mina_part_skip_substitute'
+SKIP_VENDOR_SYNC_KEY = 'mina_part_skip_vendor_sync'
+
+# Fields copied to the vendor price (product.supplierinfo) of the principal.
+VENDOR_SYNC_FIELDS = {'part_list_price', 'part_currency_id', 'part_lead_time', 'categ_id', 'default_code'}
+# Depth limit when following substitutes of substitutes (A -> B -> C).
+SUBSTITUTE_MAX_DEPTH = 10
 
 
 def split_part_numbers(value):
@@ -98,6 +104,8 @@ class ProductTemplate(models.Model):
             ])
         if parts and not self.env.context.get(SKIP_SUBSTITUTE_KEY):
             parts.filtered('substitute_part_numbers')._mina_resolve_substitutes()
+        if parts and not self.env.context.get(SKIP_VENDOR_SYNC_KEY):
+            parts._mina_sync_vendor_prices()
         return templates
 
     def write(self, vals):
@@ -127,6 +135,8 @@ class ProductTemplate(models.Model):
                 self.env['mina.part.change.log'].sudo().create(log_vals)
         if 'substitute_part_numbers' in vals and not self.env.context.get(SKIP_SUBSTITUTE_KEY):
             self._mina_resolve_substitutes()
+        if VENDOR_SYNC_FIELDS & vals.keys() and not self.env.context.get(SKIP_VENDOR_SYNC_KEY):
+            self._mina_sync_vendor_prices()
         return res
 
     # ------------------------------------------------------------------
@@ -258,3 +268,76 @@ class ProductTemplate(models.Model):
             if substitutes != template.substitute_product_ids:
                 template.substitute_product_ids = substitutes
         return missing
+
+    def _mina_sync_vendor_prices(self):
+        """Store the principal price as vendor price of the principal vendor of the price rule,
+        so purchase orders to the principal use the principal price, currency and lead time.
+
+        :return: number of vendor prices created or updated
+        """
+        parts = self.filtered('part_type')
+        if not parts:
+            return 0
+        rules = self.env['mina.part.price.rule']._get_rules_by_category()
+        count = 0
+        for rule, templates in parts.grouped(lambda t: t._mina_find_price_rule(rules)).items():
+            if rule.vendor_id:
+                count += rule._sync_vendor_prices(templates)
+        return count
+
+    def _mina_get_substitutes(self):
+        """Substitutes of the part, including the substitutes of the substitutes (A -> B -> C).
+
+        :return: (product.template recordset ordered closest first, {template id: level})
+        """
+        self.ensure_one()
+        substitutes = self.browse()
+        levels = {}
+        seen = self
+        frontier = self.substitute_product_ids
+        level = 1
+        while frontier and level <= SUBSTITUTE_MAX_DEPTH:
+            frontier -= seen
+            for template in frontier:
+                levels[template.id] = level
+            substitutes |= frontier
+            seen |= frontier
+            frontier = frontier.substitute_product_ids
+            level += 1
+        return substitutes, levels
+
+    def _mina_substitute_warning(self, check_stock=False):
+        """Warning shown when the part is put on an order while it should be replaced.
+
+        :param check_stock: also warn when the part is out of stock and has substitutes (sales)
+        :return: message or False
+        """
+        self.ensure_one()
+        if not self.part_type:
+            return False
+        substitutes = self._mina_get_substitutes()[0]
+        if self.part_availability == 'substituted':
+            reason = self.env._("Part %s berstatus Diganti Substitusi.", self.display_name)
+        elif self.part_availability == 'discontinued':
+            reason = self.env._("Part %s sudah Discontinued.", self.display_name)
+        elif check_stock and substitutes and self.is_storable and self.qty_available <= 0:
+            reason = self.env._("Stok part %s kosong.", self.display_name)
+        else:
+            return False
+        if not substitutes:
+            return reason + " " + self.env._("Tidak ada part substitusi di master data.")
+        lines = [
+            self.env._(
+                "- %(part)s: stok %(qty)s, %(availability)s",
+                part=substitute.display_name,
+                qty=f"{substitute.qty_available:g}",
+                availability=substitute._mina_log_value('part_availability') or "-",
+            )
+            for substitute in substitutes
+        ]
+        return "\n".join([
+            reason,
+            self.env._("Part substitusi:"),
+            *lines,
+            self.env._("Gunakan tombol Substitusi pada baris order untuk mengganti part."),
+        ])

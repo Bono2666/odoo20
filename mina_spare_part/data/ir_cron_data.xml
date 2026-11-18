@@ -11,7 +11,7 @@
     </record>
 
     <record id="ir_cron_mina_part_recompute" model="ir.cron">
-        <field name="name">Spare Part: Hitung Ulang Harga</field>
+        <field name="name">Spare Part: Hitung Ulang Harga &amp; Harga Vendor</field>
         <field name="model_id" ref="model_mina_part_price_rule"/>
         <field name="state">code</field>
         <field name="code">model._cron_recompute_prices()</field>
