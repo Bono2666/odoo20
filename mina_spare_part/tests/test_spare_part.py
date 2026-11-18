@@ -434,6 +434,10 @@ class TestSparePart(TransactionCase):
         line = order.order_line
         self.assertEqual(line.mina_substitute_count, 1)
         self.assertEqual(line.mina_part_availability, 'substituted')
+        old.write({'part_stock_jpn': 7, 'part_lead_time': 21})
+        self.assertEqual(line.mina_part_type, 'engine')
+        self.assertEqual(line.mina_part_stock_jpn, 7)
+        self.assertEqual(line.mina_part_lead_time, 21)
         warning = line._mina_onchange_product_substitute()
         self.assertIn('C-NEW', warning['warning']['message'])
         self.assertIn('C-NEWER', warning['warning']['message'])

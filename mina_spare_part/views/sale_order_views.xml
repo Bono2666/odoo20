@@ -8,6 +8,9 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='order_line']/list//column[@name='product_and_description']" position="after">
                 <field name="mina_substitute_count" column_invisible="True"/>
+                <field name="mina_part_type" column_invisible="True"/>
+                <field name="mina_part_stock_jpn" string="Stock JPN" optional="show" invisible="not mina_part_type"/>
+                <field name="mina_part_lead_time" string="Lead Time" optional="show" invisible="not mina_part_type"/>
                 <field name="mina_part_availability" optional="show" widget="badge"
                        decoration-success="mina_part_availability == 'available'"
                        decoration-warning="mina_part_availability == 'substituted'"
@@ -15,6 +18,15 @@
                 <button name="action_mina_open_substitute" type="object" icon="fa-exchange"
                         title="Ganti dengan Part Substitusi"
                         invisible="not mina_substitute_count or parent.state not in ('draft', 'sent')"/>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//div[@name='lead']" position="after">
+                <field name="mina_part_type" invisible="1"/>
+                <field name="mina_part_stock_jpn" invisible="not mina_part_type"/>
+                <field name="mina_part_lead_time" invisible="not mina_part_type"/>
+                <field name="mina_part_availability" invisible="not mina_part_type" widget="badge"
+                       decoration-success="mina_part_availability == 'available'"
+                       decoration-warning="mina_part_availability == 'substituted'"
+                       decoration-danger="mina_part_availability == 'discontinued'"/>
             </xpath>
         </field>
     </record>

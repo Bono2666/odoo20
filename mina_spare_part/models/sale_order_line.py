@@ -4,7 +4,10 @@ from odoo import api, fields, models
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
+    mina_part_type = fields.Selection(related='product_id.part_type', string="Jenis Part")
     mina_part_availability = fields.Selection(related='product_id.part_availability', string="Status Part")
+    mina_part_stock_jpn = fields.Float(related='product_id.part_stock_jpn', string="Stock JPN")
+    mina_part_lead_time = fields.Integer(related='product_id.part_lead_time', string="Lead Time Principal (Hari)")
     mina_substitute_count = fields.Integer(compute='_compute_mina_substitute_count', string="Jumlah Substitusi")
 
     @api.depends('product_id')

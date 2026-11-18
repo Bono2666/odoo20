@@ -328,9 +328,11 @@ class ProductTemplate(models.Model):
             return reason + " " + self.env._("Tidak ada part substitusi di master data.")
         lines = [
             self.env._(
-                "- %(part)s: stok %(qty)s, %(availability)s",
+                "- %(part)s: stok %(qty)s, stock JPN %(jpn)s, lead time %(lead)s hari, %(availability)s",
                 part=substitute.display_name,
                 qty=f"{substitute.qty_available:g}",
+                jpn=f"{substitute.part_stock_jpn:g}",
+                lead=substitute.part_lead_time,
                 availability=substitute._mina_log_value('part_availability') or "-",
             )
             for substitute in substitutes
