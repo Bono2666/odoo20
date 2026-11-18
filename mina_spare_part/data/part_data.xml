@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="product_category_spare_part" model="product.category">
+        <field name="name">Spare Part</field>
+    </record>
+
+    <record id="product_category_engine" model="product.category">
+        <field name="name">Engine</field>
+        <field name="parent_id" ref="product_category_spare_part"/>
+        <field name="part_type">engine</field>
+    </record>
+
+    <record id="product_category_airend" model="product.category">
+        <field name="name">Airend (Compressor)</field>
+        <field name="parent_id" ref="product_category_spare_part"/>
+        <field name="part_type">airend</field>
+    </record>
+
+    <record id="part_price_rule_engine" model="mina.part.price.rule">
+        <field name="name">Harga Part Engine</field>
+        <field name="sequence">10</field>
+        <field name="category_id" ref="product_category_engine"/>
+        <field name="currency_id" ref="base.JPY"/>
+        <field name="rate_source">manual</field>
+    </record>
+
+    <record id="part_price_rule_airend" model="mina.part.price.rule">
+        <field name="name">Harga Part Airend (Compressor)</field>
+        <field name="sequence">20</field>
+        <field name="category_id" ref="product_category_airend"/>
+        <field name="currency_id" ref="base.JPY"/>
+        <field name="rate_source">manual</field>
+    </record>
+
+</odoo>

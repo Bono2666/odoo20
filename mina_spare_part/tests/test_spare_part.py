@@ -1,0 +1,354 @@
+import io
+from unittest.mock import patch
+
+import openpyxl
+
+from odoo.exceptions import ValidationError
+from odoo.tools import BinaryBytes
+from odoo.tests import TransactionCase, tagged
+
+from odoo.addons.mina_spare_part.models import part_import as part_import_module
+from odoo.addons.mina_spare_part.models import part_price_rule as part_price_rule_module
+from odoo.addons.mina_spare_part.models.part_import import parse_number, parse_price
+
+
+def make_xlsx(rows):
+    workbook = openpyxl.Workbook()
+    for row in rows:
+        workbook.active.append(row)
+    content = io.BytesIO()
+    workbook.save(content)
+    return BinaryBytes(content.getvalue())
+
+
+@tagged('post_install', '-at_install')
+class TestSparePart(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = cls.env.company
+        cls.usd = cls.env.ref('base.USD')
+        cls.usd.active = True
+        if cls.company.currency_id == cls.usd:
+            cls.company.currency_id = cls.env.ref('base.IDR')
+        cls.engine_categ = cls.env.ref('mina_spare_part.product_category_engine')
+        cls.airend_categ = cls.env.ref('mina_spare_part.product_category_airend')
+        cls.engine_rule = cls.env.ref('mina_spare_part.part_price_rule_engine')
+        cls.airend_rule = cls.env.ref('mina_spare_part.part_price_rule_airend')
+        (cls.engine_rule | cls.airend_rule).write({
+            'company_id': cls.company.id,
+            'currency_id': cls.usd.id,
+            'rate_source': 'manual',
+            'manual_rate': 16000.0,
+            'freight_pct': 10.0,
+            'duty_pct': 5.0,
+            'margin_pct': 25.0,
+            'reseller_margin_pct': 15.0,
+            'price_rounding': 100.0,
+            'rounding_method': 'UP',
+        })
+        cls.header = ["Part Number", "Description", "Substitute Part", "Price"]
+
+    def _import(self, rows, part_type='engine', file_name='parts.xlsx', file=None):
+        part_import = self.env['mina.part.import'].create({
+            'part_type': part_type,
+            'categ_id': (self.engine_categ if part_type == 'engine' else self.airend_categ).id,
+            'file': file or make_xlsx(rows),
+            'file_name': file_name,
+        })
+        part_import.action_import()
+        return part_import
+
+    def _part(self, code, part_type='engine'):
+        return self.env['product.template'].search([('default_code', '=', code), ('part_type', '=', part_type)])
+
+    def test_parse_price(self):
+        self.assertEqual(parse_price("1,234.50"), 1234.5)
+        self.assertEqual(parse_price("1.234,50"), 1234.5)
+        self.assertEqual(parse_price("12,5"), 12.5)
+        self.assertEqual(parse_price("1,234"), 1234.0)
+        self.assertEqual(parse_price("USD 99.90"), 99.9)
+        self.assertEqual(parse_price(10), 10.0)
+        self.assertIsNone(parse_price("-"))
+        self.assertIsNone(parse_price(None))
+
+    def test_import_create_with_substitute_and_price(self):
+        part_import = self._import([
+            ["Daftar Harga Part Engine"],
+            [],
+            self.header,
+            ["P-001", "Oil Filter", "P-002", 10],
+            ["P-002", "Oil Filter New", "", "20.00"],
+            ["", "", "", ""],
+        ])
+        self.assertEqual(part_import.state, 'done')
+        self.assertEqual(part_import.created_count, 2)
+        self.assertEqual(part_import.error_count, 0)
+        old, new = self._part('P-001'), self._part('P-002')
+        self.assertEqual(old.categ_id, self.engine_categ)
+        self.assertEqual(old.part_currency_id, self.usd)
+        self.assertEqual(old.substitute_product_ids, new)
+        self.assertEqual(new.substitute_for_ids, old)
+        # 10 * 16000 * 1.10 * 1.05 = 184800 ; * 1.25 = 231000
+        self.assertAlmostEqual(old.standard_price, 184800.0)
+        self.assertAlmostEqual(old.list_price, 231000.0)
+        # 184800 * 1.15 = 212520 -> rounded up to 212600
+        self.assertAlmostEqual(old.part_reseller_price, 212600.0)
+        self.assertEqual(part_import.priced_count, 2)
+        create_logs = part_import.change_log_ids.filtered(lambda log: log.change_type == 'create')
+        self.assertEqual(len(create_logs), 2)
+
+    def test_import_update_only_changes_and_logs(self):
+        self._import([self.header, ["P-001", "Oil Filter", "", 10], ["P-002", "Fuel Filter", "", 20]])
+        second = self._import([
+            self.header,
+            ["P-001", "Oil Filter Element", "P-003", 12],
+            ["P-002", "Fuel Filter", "", 20],
+        ])
+        self.assertEqual(second.created_count, 0)
+        self.assertEqual(second.updated_count, 1)
+        self.assertEqual(second.unchanged_count, 1)
+        part = self._part('P-001')
+        self.assertEqual(part.name, "Oil Filter Element")
+        logs = second.change_log_ids
+        by_field = {log.field_name: log for log in logs}
+        self.assertEqual(set(by_field), {
+            'name', 'part_list_price', 'substitute_part_numbers', 'list_price', 'standard_price', 'part_reseller_price',
+        })
+        self.assertEqual(by_field['part_list_price'].old_value, '10')
+        self.assertEqual(by_field['part_list_price'].new_value, '12')
+        self.assertEqual(by_field['name'].old_value, 'Oil Filter')
+        self.assertTrue(all(log.source == 'import' for log in logs))
+        line = second.line_ids.filtered(lambda line: line.default_code == 'P-001')
+        self.assertIn("P-003", line.message, "Unknown substitute must be reported")
+        self.assertFalse(self._part('P-002').part_change_log_ids.filtered(lambda log: log.import_id == second))
+
+        # The substitute arrives later from another file: the older part gets linked.
+        self._import([self.header, ["P-003", "Oil Filter Element v2", "", 13]])
+        self.assertEqual(part.substitute_product_ids, self._part('P-003'))
+
+    def test_engine_and_airend_are_separated(self):
+        self._import([self.header, ["X-100", "Engine Part", "", 5]])
+        airend_import = self._import([self.header, ["X-100", "Airend Part", "", 7]], part_type='airend')
+        self.assertEqual(airend_import.created_count, 1)
+        self.assertEqual(self._part('X-100').name, "Engine Part")
+        airend_part = self._part('X-100', 'airend')
+        self.assertEqual(airend_part.categ_id, self.airend_categ)
+        self.assertEqual(airend_part.part_price_rule_id, self.airend_rule)
+
+    def test_rows_with_errors(self):
+        part_import = self._import([
+            self.header,
+            ["E-1", "Bad price", "", "1-2"],
+            ["", "No code", "", 1],
+            ["E-2", "Good", "", 1],
+            ["E-2", "Duplicate", "", 2],
+        ])
+        statuses = dict(zip(part_import.line_ids.mapped('row_number'), part_import.line_ids.mapped('status')))
+        self.assertEqual(statuses, {2: 'error', 3: 'error', 4: 'created', 5: 'skipped'})
+        self.assertEqual(self._part('E-2').part_list_price, 1)
+
+    def test_csv_semicolon(self):
+        content = "Part No;Nama Part;Pengganti;Harga\nC-1;Seal Kit;C-2, C-3;1.234,50\n".encode()
+        part_import = self._import(None, file_name='airend.csv', file=BinaryBytes(content), part_type='airend')
+        part = self._part('C-1', 'airend')
+        self.assertEqual(part_import.created_count, 1)
+        self.assertEqual(part.part_list_price, 1234.5)
+        self.assertEqual(part.substitute_part_numbers, "C-2, C-3")
+
+    def test_rate_update_recomputes_prices(self):
+        self._import([self.header, ["R-1", "Bearing", "", 10]])
+        self._import([self.header, ["R-2", "Rotor Bearing", "", 10]], part_type='airend')
+        wizard = self.env['mina.part.rate.update'].create({
+            'rule_id': self.engine_rule.id,
+            'new_rate': 17000.0,
+        })
+        self.assertEqual(wizard.rule_ids, self.engine_rule | self.airend_rule)
+        wizard.action_confirm()
+        # 10 * 17000 * 1.155 = 196350 ; * 1.25 = 245437.5 -> rounded up to 245500
+        for part in self._part('R-1') | self._part('R-2', 'airend'):
+            self.assertAlmostEqual(part.list_price, 245500.0)
+            log = part.part_change_log_ids.filtered(lambda log: log.field_name == 'list_price' and log.source == 'rate')
+            self.assertEqual((log.old_value, log.new_value), ('231,000', '245,500'))
+            self.assertEqual(log.rule_id, self.engine_rule if part.part_type == 'engine' else self.airend_rule)
+        history = self.engine_rule.rate_history_ids
+        self.assertEqual((history.old_rate, history.new_rate), (16000.0, 17000.0))
+
+    def test_odoo_rate_source(self):
+        self.engine_rule.rate_source = 'odoo'
+        self.env['mina.part.rate.update'].create({
+            'rule_id': self.engine_rule.id,
+            'new_rate': 15500.0,
+            'apply_same_currency': False,
+        }).action_confirm()
+        self.assertAlmostEqual(self.engine_rule.current_rate, 15500.0, places=2)
+        rate = self.env['res.currency.rate'].search([('currency_id', '=', self.usd.id), ('name', '=', self.engine_rule.rate_history_ids.date)])
+        self.assertAlmostEqual(rate.inverse_company_rate, 15500.0, places=2)
+
+    def test_manual_edit_is_logged(self):
+        self._import([self.header, ["M-1", "Gasket", "", 3]])
+        part = self._part('M-1')
+        part.substitute_part_numbers = "M-1, M-9"
+        log = part.part_change_log_ids.filtered(lambda log: log.field_name == 'substitute_part_numbers')
+        self.assertEqual(log.source, 'manual')
+        self.assertFalse(part.substitute_product_ids, "A part is never its own substitute")
+
+    def test_invalid_formula(self):
+        with self.assertRaises(ValidationError):
+            self.engine_rule.sale_formula = "cost * unknown_variable"
+        self.engine_rule.sale_formula = "max(cost * (1 + margin / 100), cost + 5000)"
+        # cost = 18480 ; max(23100, 23480) = 23480, rounded up to 23500
+        self.assertAlmostEqual(self.engine_rule._compute_prices(1, 16000)[2], 23500.0)
+
+    def test_subcategory_uses_parent_rule(self):
+        sub = self.env['product.category'].create({'name': "Filter", 'parent_id': self.engine_categ.id})
+        self.assertEqual(sub.part_type, 'engine')
+        product = self.env['product.template'].create({
+            'name': "Filter X", 'default_code': 'F-X', 'categ_id': sub.id, 'part_list_price': 1,
+            'part_currency_id': self.usd.id,
+        })
+        self.assertEqual(product.part_price_rule_id, self.engine_rule)
+        product.action_mina_compute_part_price()
+        self.assertAlmostEqual(product.list_price, 23100.0)
+
+    def test_non_part_products_not_logged(self):
+        product = self.env['product.template'].create({'name': "Office Chair"})
+        product.list_price = 99
+        self.assertFalse(product.part_change_log_ids)
+        product.categ_id = self.engine_categ
+        self.assertTrue(product.part_change_log_ids.filtered(lambda log: log.field_name == 'categ_id'))
+
+    def test_download_template_and_views(self):
+        part_import = self.env['mina.part.import'].with_context(default_part_type='airend').create({
+            'part_type': 'airend',
+            'file': make_xlsx([self.header]),
+            'file_name': 'empty.xlsx',
+        })
+        self.assertEqual(part_import.categ_id, self.airend_categ)
+        action = part_import.action_download_template()
+        attachment = self.env['ir.attachment'].browse(int(action['url'].split('/')[3].split('?')[0]))
+        rows = list(openpyxl.load_workbook(io.BytesIO(attachment.raw)).active.iter_rows(values_only=True))
+        self.assertEqual(rows[0][0], "Part No.")
+        for model in ('mina.part.import', 'mina.part.price.rule', 'mina.part.change.log', 'product.template'):
+            self.env[model].get_views([(False, 'list'), (False, 'form'), (False, 'search')])
+
+
+    def _commit_patch(self):
+        """The background jobs commit between batches: not allowed in tests."""
+        return patch.object(type(self.env['ir.cron']), '_commit_progress', lambda self, *args, **kwargs: float('inf'))
+
+    def test_parse_number_decimal_comma(self):
+        self.assertEqual(parse_number("0,37", decimal_comma=True), 0.37)
+        self.assertEqual(parse_number("1.234,5", decimal_comma=True), 1234.5)
+        self.assertEqual(parse_number("12", decimal_comma=True), 12.0)
+
+    def test_principal_catalog_xlsx(self):
+        """Catalog with an information sheet first and Japanese headers on the data sheet."""
+        workbook = openpyxl.Workbook()
+        info = workbook.active
+        info.title = "Product Info"
+        info.append(["Updated date"])
+        info.append(["Part No.", "Substitution Parts Number", "Parts name", "List Price (YEN)"])
+        info.append(["3214300800", None, "ELEMENT", 12400])
+        data = workbook.create_sheet("Data")
+        data.append(['部品番号', '代替部品番号', '部品名', 'LT', '在庫数', '海外定価', '重量', '備考4', 'コメント'])
+        data.append(['F12994842240', None, 'V-BELT', 29, 5, 7650, 0.18, '在庫限定部品', None])
+        data.append(['LZ1136501333', 'LZ1136501334', 'FILTER', 126, 0, 0, None, None, 'Substitution Parts Number'])
+        data.append(['LZ1136501334', None, 'FILTER NEW', 42, 3, 2100, 0.5, None, None])
+        data.append(['K1747264010', None, 'GASKET', 7, 0, 0, None, None, 'discontinued'])
+        content = io.BytesIO()
+        workbook.save(content)
+        part_import = self._import(None, file=BinaryBytes(content.getvalue()), file_name='e_engine_catalog.xlsx')
+        self.assertEqual(part_import.created_count, 4)
+        belt = self._part('F12994842240')
+        self.assertEqual(
+            (belt.part_lead_time, belt.part_stock_jpn, belt.weight, belt.part_remarks, belt.part_availability),
+            (29, 5.0, 0.18, '在庫限定部品', 'available'),
+        )
+        self.assertEqual(belt.part_list_price, 7650)
+        old_filter = self._part('LZ1136501333')
+        self.assertEqual(old_filter.part_availability, 'substituted')
+        self.assertEqual(old_filter.substitute_product_ids, self._part('LZ1136501334'))
+        self.assertFalse(old_filter.list_price, "No principal price: no sale price")
+        self.assertEqual(self._part('K1747264010').part_availability, 'discontinued')
+
+    def test_principal_csv_with_lost_header(self):
+        """CSV export where the Japanese header became '????': read by column order."""
+        content = (
+            "????;??????;???;LT;???;????;??;??;????;Product Category\r\n"
+            "006208UUC3;2147211200;MOTOR BEARING;126;0;0;;;Substitution Parts Number;PART\r\n"
+            "006210VVC3;;MOTOR BEARING;95;20;12200;0,45;????;;PART\r\n"
+            "GE36003400;GE36003401;DUMPER;7;0;0;;;discontinued;PART\r\n"
+        ).encode()
+        part_import = self._import(None, file=BinaryBytes(content), file_name='Principle Data.csv', part_type='airend')
+        self.assertEqual(part_import.created_count, 3)
+        self.assertIn("Remarks", part_import.summary)
+        bearing = self._part('006210VVC3', 'airend')
+        self.assertEqual(bearing.categ_id.name, 'PART')
+        self.assertEqual(bearing.categ_id.parent_id, self.airend_categ)
+        self.assertEqual(bearing.part_price_rule_id, self.airend_rule, "Sub-category uses the parent's price rule")
+        self.assertEqual((bearing.weight, bearing.part_stock_jpn, bearing.part_lead_time), (0.45, 20.0, 95))
+        self.assertFalse(bearing.part_remarks)
+        self.assertEqual(self._part('006208UUC3', 'airend').substitute_part_numbers, '2147211200')
+
+    def test_import_in_batches(self):
+        rows = [self.header] + [[f"B-{i}", f"Part {i}", "", i] for i in range(1, 6)] + [["B-2", "Duplicate", "", 9]]
+        part_import = self.env['mina.part.import'].create({
+            'part_type': 'engine', 'categ_id': self.engine_categ.id,
+            'file': make_xlsx(rows), 'file_name': 'big.xlsx',
+        })
+        with patch.object(part_import_module, 'SYNC_ROW_LIMIT', 2):
+            action = part_import.action_import()
+        self.assertEqual(action['tag'], 'display_notification')
+        self.assertEqual((part_import.state, part_import.data_rows), ('queued', 6))
+        with self._commit_patch(), patch.object(part_import_module, 'BATCH_SIZE', 2):
+            self.env['mina.part.import']._cron_process_imports()
+        self.assertEqual(part_import.state, 'done')
+        self.assertEqual((part_import.created_count, part_import.skipped_count), (5, 1))
+        self.assertEqual(self._part('B-2').name, "Part 2")
+        self.assertEqual(part_import.progress, 100)
+
+    def test_failed_import_can_resume(self):
+        part_import = self.env['mina.part.import'].create({
+            'part_type': 'engine', 'categ_id': self.engine_categ.id,
+            'file': make_xlsx([self.header, ["F-1", "A", "", 1], ["F-2", "B", "", 2]]), 'file_name': 'f.xlsx',
+        })
+        part_import.write({'state': 'queued', 'user_id': self.env.uid})
+        with self._commit_patch(), \
+                patch.object(type(part_import), '_process_rows', side_effect=ValueError("boom")), \
+                patch.object(type(self.env['ir.cron']), '_rollback_progress', lambda self: None):
+            self.env['mina.part.import']._cron_process_imports()
+        self.assertEqual(part_import.state, 'failed')
+        self.assertIn("boom", part_import.summary)
+        part_import.action_resume()
+        with self._commit_patch():
+            self.env['mina.part.import']._cron_process_imports()
+        self.assertEqual((part_import.state, part_import.created_count), ('done', 2))
+
+    def test_recompute_in_background_and_reseller_pricelist(self):
+        pricelist = self.env['product.pricelist'].create({
+            'name': "Reseller", 'currency_id': self.company.currency_id.id,
+        })
+        self.engine_rule.reseller_pricelist_id = pricelist
+        self._import([self.header, ["G-1", "Ring", "", 10], ["G-2", "Seal", "", 20]])
+        self.assertEqual(len(pricelist.item_ids), 2)
+        self.engine_rule.margin_pct = 50.0
+        self.engine_rule.reseller_margin_pct = 20.0
+        with patch.object(part_price_rule_module, 'RECOMPUTE_SYNC_LIMIT', 1):
+            self.engine_rule.action_apply_prices()
+        self.assertEqual(self.engine_rule.recompute_state, 'pending')
+        with self._commit_patch(), patch.object(part_price_rule_module, 'RECOMPUTE_BATCH_SIZE', 1):
+            self.env['mina.part.price.rule']._cron_recompute_prices()
+        self.assertEqual(self.engine_rule.recompute_state, 'done')
+        ring = self._part('G-1')
+        # cost 184800 ; end user * 1.5 = 277200 ; reseller * 1.2 = 221760 -> 221800
+        self.assertAlmostEqual(ring.list_price, 277200.0)
+        self.assertAlmostEqual(ring.part_reseller_price, 221800.0)
+        item = pricelist.item_ids.filtered(lambda i: i.product_tmpl_id == ring)
+        self.assertAlmostEqual(item.fixed_price, 221800.0)
+        self.assertEqual(len(pricelist.item_ids), 2)
+        self.assertEqual(
+            ring.part_change_log_ids.filtered(lambda log: log.field_name == 'list_price' and log.source == 'rule').new_value,
+            '277,200',
+        )

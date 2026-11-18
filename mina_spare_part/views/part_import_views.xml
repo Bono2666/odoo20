@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="mina_part_import_view_list" model="ir.ui.view">
+        <field name="name">mina.part.import.view.list</field>
+        <field name="model">mina.part.import</field>
+        <field name="arch" type="xml">
+            <list string="Import Data Part">
+                <field name="name"/>
+                <field name="part_type"/>
+                <field name="categ_id" optional="show"/>
+                <field name="file_name"/>
+                <field name="import_date"/>
+                <field name="user_id" widget="many2one_avatar_user" optional="show"/>
+                <field name="total_rows" optional="hide"/>
+                <field name="created_count" optional="show"/>
+                <field name="updated_count" optional="show"/>
+                <field name="unchanged_count" optional="hide"/>
+                <field name="error_count" optional="show" decoration-danger="error_count &gt; 0"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+                <field name="progress" widget="progressbar" optional="hide"/>
+                <field name="state" widget="badge" decoration-success="state == 'done'" decoration-info="state == 'draft'"
+                       decoration-warning="state == 'queued'" decoration-danger="state == 'failed'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="mina_part_import_view_form" model="ir.ui.view">
+        <field name="name">mina.part.import.view.form</field>
+        <field name="model">mina.part.import</field>
+        <field name="arch" type="xml">
+            <form string="Import Data Part">
+                <header>
+                    <button name="action_import" type="object" string="Proses Import" class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_resume" type="object" string="Lanjutkan" class="btn-primary"
+                            invisible="state != 'failed'"/>
+                    <button name="action_download_template" type="object" string="Download Template"
+                            invisible="state != 'draft'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_products" type="object" class="oe_stat_button" icon="fa-cubes"
+                                invisible="state == 'draft'">
+                            <field name="total_rows" widget="statinfo" string="Baris"/>
+                        </button>
+                        <button name="action_view_change_log" type="object" class="oe_stat_button" icon="fa-history"
+                                invisible="state == 'draft'">
+                            <field name="change_log_count" widget="statinfo" string="Log Perubahan"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="part_type" widget="radio" readonly="state != 'draft'"/>
+                            <field name="categ_id" options="{'no_create': True}" readonly="state != 'draft'"/>
+                            <field name="file" filename="file_name" readonly="state != 'draft'"/>
+                            <field name="file_name" invisible="1"/>
+                            <field name="sheet_name" readonly="state != 'draft'"/>
+                            <field name="company_id" groups="base.group_multi_company" readonly="state != 'draft'"/>
+                        </group>
+                        <group>
+                            <field name="create_new" readonly="state != 'draft'"/>
+                            <field name="update_existing" readonly="state != 'draft'"/>
+                            <field name="apply_pricing" readonly="state != 'draft'"/>
+                            <field name="import_date" invisible="state == 'draft'"/>
+                            <field name="user_id" invisible="state == 'draft'"/>
+                            <field name="data_rows" invisible="state == 'draft'"/>
+                        </group>
+                    </group>
+                    <div class="alert alert-warning" role="status" invisible="state != 'queued'">
+                        <p class="mb-1"><strong>Import sedang diproses di background</strong> (per 1.000 baris). Muat ulang halaman untuk melihat progres.</p>
+                        <field name="progress" widget="progressbar"/>
+                    </div>
+                    <div class="alert alert-info" role="alert" invisible="state != 'draft'">
+                        <p class="mb-1"><strong>Format file:</strong> katalog principal .xls/.xlsx (sheet <em>Data</em> dicari otomatis) atau .csv. Header bahasa Inggris, Indonesia, maupun Jepang dikenali.</p>
+                        <ul class="mb-0">
+                            <li><strong>Part No.</strong> (wajib): Part No. / Part Number / 部品番号</li>
+                            <li><strong>Substitution Parts Number</strong>: 代替部品番号 / Substitute / Pengganti</li>
+                            <li><strong>Parts name</strong>: 部品名 / Description / Nama Part</li>
+                            <li><strong>Lead Times</strong> (LT), <strong>Stock JPN</strong> (在庫数), <strong>YEN / Price Yen</strong> (海外定価), <strong>Weight</strong> (重量), <strong>Remarks</strong> (備考), <strong>Product Availablity</strong> (供給可否 / コメント), <strong>Product Category</strong></li>
+                        </ul>
+                        <p class="mb-0 mt-1">Part dicocokkan berdasarkan Part No. pada jenis file yang sama. Hanya data yang berubah yang diupdate dan dicatat di Log Perubahan. File di atas 1.000 baris diproses di background.</p>
+                    </div>
+                    <group invisible="state != 'done'">
+                        <group string="Ringkasan">
+                            <field name="created_count"/>
+                            <field name="updated_count"/>
+                            <field name="unchanged_count"/>
+                        </group>
+                        <group string="&#160;">
+                            <field name="skipped_count"/>
+                            <field name="error_count" decoration-danger="error_count &gt; 0"/>
+                            <field name="priced_count"/>
+                        </group>
+                    </group>
+                    <div class="alert alert-warning" role="alert" invisible="not summary">
+                        <field name="summary" nolabel="1"/>
+                    </div>
+                    <notebook invisible="state != 'done'">
+                        <page string="Hasil Per Baris" name="lines">
+                            <field name="line_ids">
+                                <list decoration-danger="status == 'error'" decoration-muted="status in ('unchanged', 'skipped')"
+                                      decoration-success="status == 'created'" decoration-info="status == 'updated'">
+                                    <field name="row_number"/>
+                                    <field name="default_code"/>
+                                    <field name="name"/>
+                                    <field name="product_tmpl_id" optional="show"/>
+                                    <field name="status" widget="badge"/>
+                                    <field name="message"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Log Perubahan" name="change_log">
+                            <field name="change_log_ids">
+                                <list>
+                                    <field name="default_code"/>
+                                    <field name="product_tmpl_id"/>
+                                    <field name="change_type"/>
+                                    <field name="field_label"/>
+                                    <field name="old_value"/>
+                                    <field name="new_value"/>
+                                    <field name="source" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="mina_part_import_view_search" model="ir.ui.view">
+        <field name="name">mina.part.import.view.search</field>
+        <field name="model">mina.part.import</field>
+        <field name="arch" type="xml">
+            <search string="Import Data Part">
+                <field name="name"/>
+                <field name="file_name"/>
+                <field name="user_id"/>
+                <filter string="Engine" name="engine" domain="[('part_type', '=', 'engine')]"/>
+                <filter string="Airend (Compressor)" name="airend" domain="[('part_type', '=', 'airend')]"/>
+                <separator/>
+                <filter string="Ada Error" name="has_error" domain="[('error_count', '&gt;', 0)]"/>
+                <group>
+                    <filter string="Jenis File" name="group_part_type" context="{'group_by': 'part_type'}"/>
+                    <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="mina_part_import_action" model="ir.actions.act_window">
+        <field name="name">Import Data Part</field>
+        <field name="res_model">mina.part.import</field>
+        <field name="path">spare-part-imports</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Upload file data part</p>
+            <p>Pilih jenis file (Engine atau Airend/Compressor), upload file, lalu klik Proses Import.</p>
+        </field>
+    </record>
+
+</odoo>

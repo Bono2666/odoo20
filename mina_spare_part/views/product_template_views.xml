@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="product_template_form_view" model="ir.ui.view">
+        <field name="name">product.template.form.inherit.mina.spare.part</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <div name="button_box" position="inside">
+                <button name="action_mina_view_change_log" type="object" class="oe_stat_button"
+                        icon="fa-history" invisible="not part_type">
+                    <field name="part_change_log_count" widget="statinfo" string="Log Perubahan"/>
+                </button>
+            </div>
+            <page name="general_information" position="after">
+                <page string="Spare Part" name="mina_spare_part" invisible="not part_type">
+                    <group>
+                        <group name="mina_part_info" string="Data Part">
+                            <field name="part_type"/>
+                            <field name="part_availability"/>
+                            <field name="part_lead_time"/>
+                            <field name="part_stock_jpn"/>
+                            <field name="part_remarks"/>
+                            <field name="part_application"/>
+                            <field name="substitute_part_numbers"/>
+                            <field name="substitute_product_ids" widget="many2many_tags"
+                                   options="{'no_create': True}" readonly="1"/>
+                            <field name="substitute_for_ids" widget="many2many_tags"
+                                   invisible="not substitute_for_ids"/>
+                            <field name="part_import_id"/>
+                        </group>
+                        <group name="mina_part_price" string="Harga">
+                            <label for="part_list_price"/>
+                            <div class="o_row">
+                                <field name="part_list_price"/>
+                                <field name="part_currency_id" options="{'no_create': True}"/>
+                            </div>
+                            <field name="part_reseller_price" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                            <div colspan="2" class="text-muted small">Harga End User = Sales Price di tab General Information.</div>
+                            <field name="part_price_rule_id"/>
+                            <field name="part_price_date"/>
+                            <div colspan="2">
+                                <button name="action_mina_compute_part_price" type="object"
+                                        string="Hitung Harga Jual" icon="fa-calculator"
+                                        class="btn-secondary" invisible="not part_price_rule_id"/>
+                            </div>
+                        </group>
+                    </group>
+                </page>
+            </page>
+        </field>
+    </record>
+
+    <record id="product_template_search_view" model="ir.ui.view">
+        <field name="name">product.template.search.inherit.mina.spare.part</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_search_view"/>
+        <field name="arch" type="xml">
+            <field name="categ_id" position="after">
+                <field name="substitute_part_numbers"/>
+                <field name="part_application"/>
+            </field>
+            <filter name="combo" position="after">
+                <separator/>
+                <filter string="Part Engine" name="mina_part_engine" domain="[('part_type', '=', 'engine')]"/>
+                <filter string="Part Airend (Compressor)" name="mina_part_airend" domain="[('part_type', '=', 'airend')]"/>
+                <filter string="Punya Substitusi" name="mina_part_has_substitute"
+                        domain="[('substitute_part_numbers', '!=', False)]"/>
+                <filter string="Substitusi Belum Ditemukan" name="mina_part_substitute_missing"
+                        domain="[('substitute_part_numbers', '!=', False), ('substitute_product_ids', '=', False)]"/>
+                <separator/>
+                <filter string="Tersedia" name="mina_part_available" domain="[('part_availability', '=', 'available')]"/>
+                <filter string="Diganti Substitusi" name="mina_part_substituted" domain="[('part_availability', '=', 'substituted')]"/>
+                <filter string="Discontinued" name="mina_part_discontinued" domain="[('part_availability', '=', 'discontinued')]"/>
+                <filter string="Belum Ada Harga Principal" name="mina_part_no_list_price"
+                        domain="[('part_type', '!=', False), ('part_list_price', '=', 0)]"/>
+            </filter>
+        </field>
+    </record>
+
+    <record id="mina_part_product_view_list" model="ir.ui.view">
+        <field name="name">mina.part.product.view.list</field>
+        <field name="model">product.template</field>
+        <field name="mode">primary</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <list string="Data Part" sample="1" decoration-muted="part_availability == 'discontinued'">
+                <field name="currency_id" column_invisible="True"/>
+                <field name="cost_currency_id" column_invisible="True"/>
+                <field name="default_code" string="Part No."/>
+                <field name="substitute_part_numbers" string="Substitution Parts Number"/>
+                <field name="name" string="Parts Name"/>
+                <field name="part_lead_time" string="Lead Time (Hari)" optional="show"/>
+                <field name="part_stock_jpn" string="Stock JPN" optional="show"/>
+                <field name="weight" string="Weight Kg" optional="show"/>
+                <field name="part_reseller_price" string="Price (Reseller)" widget="monetary"
+                       options="{'currency_field': 'currency_id'}"/>
+                <field name="list_price" string="End User" widget="monetary" options="{'currency_field': 'currency_id'}"/>
+                <field name="qty_available" string="Stock Mina" optional="show"/>
+                <field name="part_list_price" string="Price Yen" optional="show"/>
+                <field name="part_currency_id" string="Mata Uang" optional="hide"/>
+                <field name="part_remarks" string="Remarks" optional="show"/>
+                <field name="part_availability" string="Product Availability" optional="show" widget="badge"
+                       decoration-success="part_availability == 'available'"
+                       decoration-warning="part_availability == 'substituted'"
+                       decoration-danger="part_availability == 'discontinued'"/>
+                <field name="categ_id" optional="hide"/>
+                <field name="part_type" optional="hide"/>
+                <field name="part_application" optional="hide"/>
+                <field name="standard_price" widget="monetary" options="{'currency_field': 'cost_currency_id'}" optional="hide"/>
+                <field name="part_price_date" optional="hide"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="mina_part_product_action" model="ir.actions.act_window">
+        <field name="name">Data Part</field>
+        <field name="res_model">product.template</field>
+        <field name="path">spare-parts</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('part_type', '!=', False)]</field>
+        <field name="context">{'default_type': 'consu'}</field>
+        <field name="view_ids" eval="[
+            Command.clear(),
+            Command.create({'view_mode': 'list', 'view_id': ref('mina_part_product_view_list')}),
+            Command.create({'view_mode': 'form', 'view_id': ref('product.product_template_form_view')}),
+        ]"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Belum ada data part</p>
+            <p>Upload file part Engine atau Airend (Compressor) dari menu Import Data Part.</p>
+        </field>
+    </record>
+
+    <record id="mina_part_product_action_compute_price" model="ir.actions.server">
+        <field name="name">Hitung Harga Jual</field>
+        <field name="model_id" ref="product.model_product_template"/>
+        <field name="binding_model_id" ref="product.model_product_template"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[Command.link(ref('mina_spare_part_group_user'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = records.action_mina_compute_part_price()</field>
+    </record>
+
+</odoo>

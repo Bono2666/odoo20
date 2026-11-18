@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="mina_part_change_log_view_list" model="ir.ui.view">
+        <field name="name">mina.part.change.log.view.list</field>
+        <field name="model">mina.part.change.log</field>
+        <field name="arch" type="xml">
+            <list string="Log Perubahan Part" create="false" edit="false" delete="false">
+                <field name="date"/>
+                <field name="default_code"/>
+                <field name="product_tmpl_id"/>
+                <field name="part_type" optional="hide"/>
+                <field name="change_type" widget="badge"
+                       decoration-success="change_type == 'create'" decoration-info="change_type == 'update'"/>
+                <field name="field_label"/>
+                <field name="old_value"/>
+                <field name="new_value"/>
+                <field name="source" optional="show"/>
+                <field name="import_id" optional="show"/>
+                <field name="rule_id" optional="hide"/>
+                <field name="user_id" widget="many2one_avatar_user" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="mina_part_change_log_view_form" model="ir.ui.view">
+        <field name="name">mina.part.change.log.view.form</field>
+        <field name="model">mina.part.change.log</field>
+        <field name="arch" type="xml">
+            <form string="Log Perubahan Part" create="false" edit="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="product_tmpl_id"/>
+                            <field name="default_code"/>
+                            <field name="categ_id"/>
+                            <field name="change_type"/>
+                            <field name="field_label"/>
+                            <field name="field_name" groups="base.group_no_one"/>
+                        </group>
+                        <group>
+                            <field name="date"/>
+                            <field name="user_id"/>
+                            <field name="source"/>
+                            <field name="import_id"/>
+                            <field name="rule_id"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="old_value"/>
+                        <field name="new_value"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="mina_part_change_log_view_search" model="ir.ui.view">
+        <field name="name">mina.part.change.log.view.search</field>
+        <field name="model">mina.part.change.log</field>
+        <field name="arch" type="xml">
+            <search string="Log Perubahan Part">
+                <field name="default_code"/>
+                <field name="product_tmpl_id"/>
+                <field name="field_label"/>
+                <field name="import_id"/>
+                <field name="user_id"/>
+                <filter string="Part Baru" name="created" domain="[('change_type', '=', 'create')]"/>
+                <filter string="Perubahan" name="updated" domain="[('change_type', '=', 'update')]"/>
+                <separator/>
+                <filter string="Perubahan Harga" name="price_changes"
+                        domain="[('field_name', 'in', ['part_list_price', 'part_reseller_price', 'list_price', 'standard_price'])]"/>
+                <filter string="Perubahan Substitusi" name="substitute_changes"
+                        domain="[('field_name', '=', 'substitute_part_numbers')]"/>
+                <separator/>
+                <filter string="Engine" name="engine" domain="[('part_type', '=', 'engine')]"/>
+                <filter string="Airend (Compressor)" name="airend" domain="[('part_type', '=', 'airend')]"/>
+                <separator/>
+                <filter string="Tanggal" name="filter_date" date="date"/>
+                <group>
+                    <filter string="Produk" name="group_product" context="{'group_by': 'product_tmpl_id'}"/>
+                    <filter string="Field" name="group_field" context="{'group_by': 'field_label'}"/>
+                    <filter string="Sumber" name="group_source" context="{'group_by': 'source'}"/>
+                    <filter string="Import" name="group_import" context="{'group_by': 'import_id'}"/>
+                    <filter string="Tanggal" name="group_date" context="{'group_by': 'date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="mina_part_change_log_action" model="ir.actions.act_window">
+        <field name="name">Log Perubahan Part</field>
+        <field name="res_model">mina.part.change.log</field>
+        <field name="path">spare-part-changes</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_empty_folder">Belum ada perubahan data part</p>
+            <p>Setiap part baru dan perubahan data part (dari import, update kurs, atau edit manual) tercatat di sini.</p>
+        </field>
+    </record>
+
+</odoo>

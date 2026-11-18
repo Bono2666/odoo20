@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="mina_spare_part_menu_root"
+              name="Spare Part"
+              web_icon="mina_spare_part,static/description/icon.png"
+              groups="mina_spare_part_group_user"
+              sequence="45"/>
+
+    <menuitem id="mina_part_product_menu"
+              name="Data Part"
+              parent="mina_spare_part_menu_root"
+              action="mina_part_product_action"
+              sequence="10"/>
+
+    <menuitem id="mina_part_import_menu"
+              name="Import Data Part"
+              parent="mina_spare_part_menu_root"
+              action="mina_part_import_action"
+              sequence="20"/>
+
+    <menuitem id="mina_part_change_log_menu"
+              name="Log Perubahan"
+              parent="mina_spare_part_menu_root"
+              action="mina_part_change_log_action"
+              sequence="30"/>
+
+    <menuitem id="mina_spare_part_menu_config"
+              name="Konfigurasi"
+              parent="mina_spare_part_menu_root"
+              sequence="90"/>
+
+    <menuitem id="mina_part_price_rule_menu"
+              name="Setting Harga &amp; Kurs"
+              parent="mina_spare_part_menu_config"
+              action="mina_part_price_rule_action"
+              groups="mina_spare_part_group_manager"
+              sequence="10"/>
+
+    <menuitem id="mina_part_rate_history_menu"
+              name="Riwayat Kurs"
+              parent="mina_spare_part_menu_config"
+              action="mina_part_rate_history_action"
+              sequence="20"/>
+
+    <menuitem id="mina_part_category_menu"
+              name="Kategori Part"
+              parent="mina_spare_part_menu_config"
+              action="mina_part_category_action"
+              groups="product.group_product_manager"
+              sequence="30"/>
+
+</odoo>

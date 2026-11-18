@@ -1,0 +1,13 @@
+id,name,model_id,group_id/id,operation,domain
+access_mina_part_import_user,mina.part.import.user,mina.part.import,mina_spare_part_group_user,crud,
+mina_part_import_comp_rule,mina.part.import multi-company,mina.part.import,,crud,"[('company_id', 'in', company_ids)]"
+access_mina_part_import_line_user,mina.part.import.line.user,mina.part.import.line,mina_spare_part_group_user,crud,
+access_mina_part_change_log_user,mina.part.change.log.user,mina.part.change.log,mina_spare_part_group_user,r,
+access_mina_part_change_log_product_manager,mina.part.change.log.product.manager,mina.part.change.log,product.group_product_manager,r,
+access_mina_part_price_rule_internal,mina.part.price.rule.internal,mina.part.price.rule,base.group_user,r,
+access_mina_part_price_rule_manager,mina.part.price.rule.manager,mina.part.price.rule,mina_spare_part_group_manager,crud,
+mina_part_price_rule_comp_rule,mina.part.price.rule multi-company,mina.part.price.rule,,crud,"[('company_id', 'in', company_ids)]"
+access_mina_part_rate_history_user,mina.part.rate.history.user,mina.part.rate.history,mina_spare_part_group_user,r,
+access_mina_part_rate_history_manager,mina.part.rate.history.manager,mina.part.rate.history,mina_spare_part_group_manager,cr,
+mina_part_rate_history_comp_rule,mina.part.rate.history multi-company,mina.part.rate.history,,crud,"[('company_id', 'in', company_ids)]"
+access_mina_part_rate_update_manager,mina.part.rate.update.manager,mina.part.rate.update,mina_spare_part_group_manager,crud,

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="mina_spare_part_privilege" model="res.groups.privilege">
+        <field name="name">Spare Part</field>
+        <field name="category_id" ref="base.module_category_supply_chain"/>
+    </record>
+
+    <record id="mina_spare_part_group_user" model="res.groups">
+        <field name="name">User</field>
+        <field name="sequence">10</field>
+        <field name="privilege_id" ref="mina_spare_part_privilege"/>
+        <field name="implied_ids" eval="[Command.link(ref('product.group_product_manager'))]"/>
+        <field name="comment">Melihat data part dan melakukan import data part.</field>
+    </record>
+
+    <record id="mina_spare_part_group_manager" model="res.groups">
+        <field name="name">Administrator</field>
+        <field name="sequence">20</field>
+        <field name="privilege_id" ref="mina_spare_part_privilege"/>
+        <field name="implied_ids" eval="[Command.link(ref('mina_spare_part_group_user'))]"/>
+        <field name="user_ids" eval="[Command.link(ref('base.user_root')), Command.link(ref('base.user_admin'))]"/>
+        <field name="comment">Mengatur setting harga, formula, dan update kurs.</field>
+    </record>
+
+</odoo>

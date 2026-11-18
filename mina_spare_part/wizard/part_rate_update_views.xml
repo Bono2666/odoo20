@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="mina_part_rate_update_view_form" model="ir.ui.view">
+        <field name="name">mina.part.rate.update.view.form</field>
+        <field name="model">mina.part.rate.update</field>
+        <field name="arch" type="xml">
+            <form string="Update Kurs">
+                <group>
+                    <group>
+                        <field name="rule_id" readonly="1"/>
+                        <field name="currency_id"/>
+                        <field name="company_currency_id" invisible="1"/>
+                        <field name="rate_source" invisible="1"/>
+                        <field name="old_rate"/>
+                        <field name="new_rate"/>
+                        <field name="date"/>
+                    </group>
+                    <group>
+                        <field name="apply_same_currency"/>
+                        <field name="update_odoo_rate" readonly="rate_source == 'odoo'"/>
+                        <field name="recompute_prices"/>
+                        <field name="rule_ids" widget="many2many_tags"/>
+                    </group>
+                </group>
+                <field name="note" placeholder="Keterangan, mis. kurs jual BCA tanggal ini"/>
+                <footer>
+                    <button name="action_confirm" type="object" string="Update Kurs" class="btn-primary" data-hotkey="q"/>
+                    <button string="Batal" special="cancel" data-hotkey="x"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="mina_part_price_rule_view_list" model="ir.ui.view">
+        <field name="name">mina.part.price.rule.view.list</field>
+        <field name="model">mina.part.price.rule</field>
+        <field name="arch" type="xml">
+            <list string="Setting Harga Part">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="category_id"/>
+                <field name="currency_id"/>
+                <field name="rate_source"/>
+                <field name="current_rate"/>
+                <field name="discount_pct" optional="hide"/>
+                <field name="freight_pct" optional="show"/>
+                <field name="duty_pct" optional="show"/>
+                <field name="other_pct" optional="hide"/>
+                <field name="reseller_margin_pct"/>
+                <field name="margin_pct"/>
+                <field name="recompute_state" optional="show" widget="badge" decoration-warning="recompute_state == 'pending'"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="mina_part_price_rule_view_form" model="ir.ui.view">
+        <field name="name">mina.part.price.rule.view.form</field>
+        <field name="model">mina.part.price.rule</field>
+        <field name="arch" type="xml">
+            <form string="Setting Harga Part">
+                <header>
+                    <button name="action_open_rate_update" type="object" string="Update Kurs" class="btn-primary"
+                            icon="fa-exchange" invisible="not id"/>
+                    <button name="action_apply_prices" type="object" string="Hitung Ulang Harga Jual"
+                            icon="fa-calculator" invisible="not id"
+                            confirm="Hitung ulang harga jual semua part pada setting ini?"/>
+                </header>
+                <div class="alert alert-warning mb-0" role="status" invisible="recompute_state != 'pending'">
+                    Harga part sedang dihitung ulang di background.
+                </div>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_products" type="object" class="oe_stat_button" icon="fa-cubes">
+                            <field name="product_count" widget="statinfo" string="Part"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="mis. Harga Part Engine"/></h1>
+                    </div>
+                    <group>
+                        <group string="Umum">
+                            <field name="category_id" options="{'no_create': True}"/>
+                            <field name="part_type"/>
+                            <field name="currency_id" options="{'no_create': True}"/>
+                            <field name="company_currency_id" invisible="1"/>
+                            <field name="company_id" groups="base.group_multi_company" options="{'no_create': True}"/>
+                            <field name="active" invisible="1"/>
+                            <field name="recompute_state" invisible="1"/>
+                        </group>
+                        <group string="Kurs">
+                            <field name="rate_source" widget="radio"/>
+                            <field name="manual_rate" invisible="rate_source != 'manual'"/>
+                            <field name="current_rate"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Parameter">
+                            <field name="discount_pct"/>
+                            <field name="freight_pct"/>
+                            <field name="duty_pct"/>
+                            <field name="other_pct"/>
+                            <field name="reseller_margin_pct"/>
+                            <field name="margin_pct"/>
+                        </group>
+                        <group string="Hasil">
+                            <field name="reseller_pricelist_id" options="{'no_create': True}"/>
+                            <field name="price_rounding"/>
+                            <field name="rounding_method"/>
+                            <field name="update_cost"/>
+                            <field name="apply_on_import"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Formula" name="formula">
+                            <group>
+                                <field name="cost_formula" widget="code" options="{'mode': 'python'}"/>
+                                <field name="reseller_formula" widget="code" options="{'mode': 'python'}"/>
+                                <field name="sale_formula" widget="code" options="{'mode': 'python'}"/>
+                            </group>
+                            <div class="text-muted small">
+                                <p class="mb-1">Variabel yang bisa dipakai:</p>
+                                <ul>
+                                    <li><code>price</code>: harga principal / Price Yen (dalam mata uang setting)</li>
+                                    <li><code>kurs</code>: kurs berlaku (1 mata uang principal = berapa mata uang perusahaan)</li>
+                                    <li><code>discount</code>, <code>freight</code>, <code>duty</code>, <code>other</code>, <code>margin_reseller</code>, <code>margin</code> (end user): parameter persen di atas</li>
+                                    <li><code>cost</code>: hasil formula harga pokok (untuk formula reseller dan end user)</li>
+                                    <li><code>reseller</code>: hasil formula harga reseller (untuk formula end user)</li>
+                                    <li>Fungsi: <code>min</code>, <code>max</code>, <code>round</code>, <code>abs</code>, <code>ceil</code>, <code>floor</code></li>
+                                </ul>
+                                <p class="mb-0">Contoh: <code>price * kurs * 1.6</code>, atau end user 15% di atas reseller: <code>reseller * 1.15</code></p>
+                            </div>
+                            <group string="Simulasi">
+                                <group>
+                                    <label for="preview_price"/>
+                                    <div class="o_row">
+                                        <field name="preview_price"/>
+                                        <field name="currency_id" readonly="1" options="{'no_open': True}"/>
+                                    </div>
+                                </group>
+                                <group>
+                                    <field name="preview_cost" widget="monetary" options="{'currency_field': 'company_currency_id'}"/>
+                                    <field name="preview_reseller" widget="monetary" options="{'currency_field': 'company_currency_id'}"/>
+                                    <field name="preview_sale" widget="monetary" options="{'currency_field': 'company_currency_id'}"/>
+                                    <field name="preview_error" class="text-danger" invisible="not preview_error" nolabel="1" colspan="2"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Riwayat Kurs" name="rate_history">
+                            <field name="rate_history_ids" readonly="1">
+                                <list>
+                                    <field name="date"/>
+                                    <field name="currency_id"/>
+                                    <field name="old_rate"/>
+                                    <field name="new_rate"/>
+                                    <field name="change_pct"/>
+                                    <field name="products_updated"/>
+                                    <field name="odoo_rate_updated" optional="hide"/>
+                                    <field name="user_id" widget="many2one_avatar_user"/>
+                                    <field name="note" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="mina_part_price_rule_action" model="ir.actions.act_window">
+        <field name="name">Setting Harga Part</field>
+        <field name="res_model">mina.part.price.rule</field>
+        <field name="path">spare-part-pricing</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="mina_part_rate_history_view_list" model="ir.ui.view">
+        <field name="name">mina.part.rate.history.view.list</field>
+        <field name="model">mina.part.rate.history</field>
+        <field name="arch" type="xml">
+            <list string="Riwayat Kurs" create="false" edit="false">
+                <field name="date"/>
+                <field name="rule_id"/>
+                <field name="currency_id"/>
+                <field name="old_rate"/>
+                <field name="new_rate"/>
+                <field name="change_pct"/>
+                <field name="products_updated"/>
+                <field name="odoo_rate_updated" optional="hide"/>
+                <field name="user_id" widget="many2one_avatar_user"/>
+                <field name="note" optional="show"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="mina_part_rate_history_action" model="ir.actions.act_window">
+        <field name="name">Riwayat Kurs</field>
+        <field name="res_model">mina.part.rate.history</field>
+        <field name="view_mode">list</field>
+    </record>
+
+</odoo>

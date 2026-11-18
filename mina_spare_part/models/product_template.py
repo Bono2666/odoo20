@@ -1,0 +1,260 @@
+import re
+
+from odoo import api, fields, models
+from odoo.exceptions import UserError
+
+SUBSTITUTE_SEPARATOR_RE = re.compile(r'[,;|\n\r]+')
+
+# Context keys used to describe the origin of a change in the change log.
+LOG_SOURCE_KEY = 'mina_part_log_source'
+LOG_IMPORT_KEY = 'mina_part_import_id'
+LOG_RULE_KEY = 'mina_part_rule_id'
+NO_LOG_KEY = 'mina_part_no_log'
+SKIP_SUBSTITUTE_KEY = 'mina_part_skip_substitute'
+
+
+def split_part_numbers(value):
+    """Split a free-text list of part numbers ("A, B; C") into unique codes."""
+    codes = []
+    for code in SUBSTITUTE_SEPARATOR_RE.split(value or ''):
+        code = code.strip()
+        if code and code not in codes:
+            codes.append(code)
+    return codes
+
+
+class ProductTemplate(models.Model):
+    _inherit = 'product.template'
+
+    part_type = fields.Selection(related='categ_id.part_type', store=True, string="Jenis Part")
+    part_list_price = fields.Float(
+        string="Harga Principal",
+        digits=(16, 4),
+        help="Harga list dari principal (Price Yen pada file import). "
+             "Menjadi dasar perhitungan harga reseller dan end user.",
+    )
+    part_currency_id = fields.Many2one('res.currency', string="Mata Uang Harga Principal")
+    part_reseller_price = fields.Monetary(
+        string="Harga Reseller", currency_field='currency_id', readonly=True, copy=False,
+        help="Dihitung dari Harga Principal x Kurs x formula reseller pada Setting Harga.",
+    )
+    part_lead_time = fields.Integer(string="Lead Time (Hari)", help="Waktu indent dari principal.")
+    part_stock_jpn = fields.Float(string="Stock JPN", digits=(16, 2), help="Stok di principal (Jepang) saat file diupload.")
+    part_remarks = fields.Char(string="Remarks")
+    part_availability = fields.Selection(
+        [('available', "Tersedia"), ('substituted', "Diganti Substitusi"), ('discontinued', "Discontinued")],
+        string="Product Availability",
+    )
+    part_application = fields.Char(string="Aplikasi / Model Unit")
+    substitute_part_numbers = fields.Char(
+        string="No. Part Substitusi",
+        help="Nomor part pengganti, pisahkan dengan koma atau titik koma bila lebih dari satu.",
+    )
+    substitute_product_ids = fields.Many2many(
+        'product.template', 'mina_part_substitute_rel', 'product_tmpl_id', 'substitute_tmpl_id',
+        string="Part Substitusi",
+        help="Produk substitusi yang ditemukan di master data berdasarkan No. Part Substitusi.",
+    )
+    substitute_for_ids = fields.Many2many(
+        'product.template', 'mina_part_substitute_rel', 'substitute_tmpl_id', 'product_tmpl_id',
+        string="Substitusi Untuk", readonly=True,
+    )
+    part_price_rule_id = fields.Many2one(
+        'mina.part.price.rule', string="Setting Harga", compute='_compute_part_price_rule_id',
+    )
+    part_price_date = fields.Datetime(string="Harga Terakhir Berubah", readonly=True, copy=False)
+    part_import_id = fields.Many2one(
+        'mina.part.import', string="Import Terakhir", readonly=True, copy=False, ondelete='set null',
+    )
+    part_change_log_ids = fields.One2many('mina.part.change.log', 'product_tmpl_id', string="Log Perubahan")
+    part_change_log_count = fields.Integer(compute='_compute_part_change_log_count')
+
+    @api.depends('categ_id', 'part_type')
+    @api.depends_context('company')
+    def _compute_part_price_rule_id(self):
+        rules = self.env['mina.part.price.rule']._get_rules_by_category()
+        for template in self:
+            template.part_price_rule_id = template._mina_find_price_rule(rules)
+
+    def _compute_part_change_log_count(self):
+        counts = dict(self.env['mina.part.change.log']._read_group(
+            [('product_tmpl_id', 'in', self.ids)], ['product_tmpl_id'], ['__count'],
+        ))
+        for template in self:
+            template.part_change_log_count = counts.get(template, 0)
+
+    # ------------------------------------------------------------------
+    # CRUD
+    # ------------------------------------------------------------------
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        templates = super().create(vals_list)
+        parts = templates.filtered('part_type')
+        if parts and not self.env.context.get(NO_LOG_KEY):
+            self.env['mina.part.change.log'].sudo().create([
+                template._mina_prepare_log_vals('create', new_value=template.display_name)
+                for template in parts
+            ])
+        if parts and not self.env.context.get(SKIP_SUBSTITUTE_KEY):
+            parts.filtered('substitute_part_numbers')._mina_resolve_substitutes()
+        return templates
+
+    def write(self, vals):
+        fnames = [fname for fname in self._mina_logged_fields() if fname in vals]
+        if not fnames or self.env.context.get(NO_LOG_KEY):
+            res = super().write(vals)
+        else:
+            # Only spare parts are logged; when the category changes a product may become one.
+            watched = self if 'categ_id' in vals else self.filtered('part_type')
+            before = {
+                template.id: {fname: template._mina_log_value(fname) for fname in fnames}
+                for template in watched
+            }
+            res = super().write(vals)
+            log_vals = []
+            for template in watched:
+                if not template.part_type:
+                    continue
+                for fname in fnames:
+                    old_value = before[template.id][fname]
+                    new_value = template._mina_log_value(fname)
+                    if old_value != new_value:
+                        log_vals.append(template._mina_prepare_log_vals(
+                            'update', fname=fname, old_value=old_value, new_value=new_value,
+                        ))
+            if log_vals:
+                self.env['mina.part.change.log'].sudo().create(log_vals)
+        if 'substitute_part_numbers' in vals and not self.env.context.get(SKIP_SUBSTITUTE_KEY):
+            self._mina_resolve_substitutes()
+        return res
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def action_mina_compute_part_price(self):
+        templates = self.filtered('part_type')
+        if not templates:
+            raise UserError(self.env._("Produk yang dipilih bukan spare part."))
+        missing = templates.filtered(lambda t: not t.part_price_rule_id)
+        if missing:
+            raise UserError(self.env._(
+                "Belum ada Setting Harga untuk kategori: %s",
+                missing.categ_id.mapped('display_name'),
+            ))
+        updated = 0
+        for rule, products in templates.grouped('part_price_rule_id').items():
+            updated += rule.with_context(**{LOG_SOURCE_KEY: 'rule'})._apply_prices(products)['updated']
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'type': 'success',
+                'message': self.env._("Harga jual dihitung ulang untuk %s produk.", updated),
+                'next': {'type': 'ir.actions.client', 'tag': 'soft_reload'},
+            },
+        }
+
+    def action_mina_view_change_log(self):
+        self.ensure_one()
+        action = self.env['ir.actions.act_window']._for_xml_id('mina_spare_part.mina_part_change_log_action')
+        action['domain'] = [('product_tmpl_id', '=', self.id)]
+        action['context'] = {'default_product_tmpl_id': self.id}
+        return action
+
+    # ------------------------------------------------------------------
+    # Business methods
+    # ------------------------------------------------------------------
+
+    def _mina_find_price_rule(self, rules_by_categ):
+        """Return the price rule of the closest category (itself, then its parents)."""
+        self.ensure_one()
+        if not self.part_type or not self.categ_id:
+            return self.env['mina.part.price.rule']
+        categ_ids = [int(categ_id) for categ_id in (self.categ_id.parent_path or '').split('/') if categ_id]
+        for categ_id in reversed(categ_ids or [self.categ_id.id]):
+            if categ_id in rules_by_categ:
+                return rules_by_categ[categ_id]
+        return self.env['mina.part.price.rule']
+
+    @api.model
+    def _mina_logged_fields(self):
+        """Fields whose changes are recorded in the spare part change log.
+
+        Stock JPN is refreshed by every upload and is not logged to keep the log readable.
+        """
+        return [
+            'default_code', 'name', 'categ_id', 'uom_id', 'part_list_price', 'part_currency_id',
+            'part_application', 'substitute_part_numbers', 'part_lead_time', 'weight', 'part_remarks',
+            'part_availability', 'part_reseller_price', 'list_price', 'standard_price', 'active',
+        ]
+
+    def _mina_log_value(self, fname):
+        """Human readable value of a field, used to detect and display changes."""
+        self.ensure_one()
+        field = self._fields[fname]
+        value = self[fname]
+        if field.type == 'many2one':
+            return value.display_name or ''
+        if field.type in ('one2many', 'many2many'):
+            return ', '.join(value.mapped('display_name'))
+        if field.type in ('float', 'monetary'):
+            return f"{value or 0.0:,.6f}".rstrip('0').rstrip('.')
+        if field.type == 'integer':
+            return str(value or 0)
+        if field.type == 'boolean':
+            return self.env._("Ya") if value else self.env._("Tidak")
+        if field.type == 'selection':
+            return dict(field._description_selection(self.env)).get(value, '')
+        return value or ''
+
+    def _mina_prepare_log_vals(self, change_type, fname=None, old_value='', new_value=''):
+        self.ensure_one()
+        context = self.env.context
+        if fname:
+            field_label = self._fields[fname]._description_string(self.env)
+        else:
+            field_label = self.env._("Produk baru")
+        return {
+            'product_tmpl_id': self.id,
+            'default_code': self.default_code,
+            'change_type': change_type,
+            'field_name': fname or False,
+            'field_label': field_label,
+            'old_value': old_value,
+            'new_value': new_value,
+            'source': context.get(LOG_SOURCE_KEY) or 'manual',
+            'import_id': context.get(LOG_IMPORT_KEY) or False,
+            'rule_id': context.get(LOG_RULE_KEY) or False,
+            'user_id': self.env.uid,
+        }
+
+    def _mina_resolve_substitutes(self):
+        """Link substitute products from the free-text substitute part numbers.
+
+        :return: dict {template id: [part numbers not found in master data]}
+        """
+        codes_by_template = {template: split_part_numbers(template.substitute_part_numbers) for template in self}
+        all_codes = {code for codes in codes_by_template.values() for code in codes}
+        by_code = {}
+        if all_codes:
+            candidates = self.with_context(active_test=False).search_fetch(
+                [('default_code', 'in', list(all_codes)), ('part_type', '!=', False)],
+                ['default_code', 'part_type'],
+            )
+            for candidate in candidates:
+                by_code[candidate.default_code] = by_code.get(candidate.default_code, self.browse()) | candidate
+        missing = {}
+        for template, codes in codes_by_template.items():
+            substitutes = self.browse()
+            for code in codes:
+                matches = by_code.get(code, self.browse()) - template
+                if not matches:
+                    missing.setdefault(template.id, []).append(code)
+                    continue
+                # Prefer a part of the same type when a part number exists in both catalogs.
+                substitutes |= matches.filtered(lambda p: p.part_type == template.part_type)[:1] or matches[:1]
+            if substitutes != template.substitute_product_ids:
+                template.substitute_product_ids = substitutes
+        return missing

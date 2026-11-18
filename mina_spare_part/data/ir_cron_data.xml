@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="ir_cron_mina_part_import" model="ir.cron">
+        <field name="name">Spare Part: Proses Import Data Part</field>
+        <field name="model_id" ref="model_mina_part_import"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_process_imports()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+    </record>
+
+    <record id="ir_cron_mina_part_recompute" model="ir.cron">
+        <field name="name">Spare Part: Hitung Ulang Harga</field>
+        <field name="model_id" ref="model_mina_part_price_rule"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_recompute_prices()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">hours</field>
+    </record>
+
+</odoo>
