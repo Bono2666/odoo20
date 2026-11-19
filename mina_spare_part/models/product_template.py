@@ -290,7 +290,11 @@ class ProductTemplate(models.Model):
         the price formula only sets the initial cost of a part without stock.
         """
         self.ensure_one()
-        return self.cost_method == 'standard' or not self.is_storable or self.qty_available <= 0
+        return self.cost_method == 'standard' or not self._mina_has_stock()
+
+    def _mina_has_stock(self):
+        self.ensure_one()
+        return self.is_storable and self.qty_available > 0
 
     def _mina_get_substitutes(self):
         """Substitutes of the part, including the substitutes of the substitutes (A -> B -> C).

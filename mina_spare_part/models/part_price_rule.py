@@ -524,7 +524,9 @@ class MinaPartPriceRule(models.Model):
         rates = {}
         now = fields.Datetime.now()
         # The rule's context carries the change log source (import, rate update, ...).
-        products = products.with_env(self.env).with_company(self.company_id).with_context(**{LOG_RULE_KEY: self.id})
+        products = products.with_env(self.env).with_company(self.company_id).with_context(
+            tracking_disable=True, **{LOG_RULE_KEY: self.id},
+        )
         reseller_prices = {}
         for product in products:
             if not product.part_list_price:
@@ -548,6 +550,9 @@ class MinaPartPriceRule(models.Model):
                 vals['standard_price'] = cost
             if vals:
                 vals['part_price_date'] = now
+                if 'standard_price' in vals and not product._mina_has_stock():
+                    # Nothing to revalue without stock: skip the (slow, per product) inventory revaluation.
+                    product = product.with_context(disable_auto_revaluation=True)
                 product.write(vals)
                 result['updated'] += 1
             else:

@@ -514,6 +514,10 @@ class MinaPartImport(models.Model):
             LOG_IMPORT_KEY: self.id,
             SKIP_SUBSTITUTE_KEY: True,
             SKIP_VENDOR_SYNC_KEY: True,
+            # The spare part change log records the changes: no chatter message/follower per product.
+            'tracking_disable': True,
+            'mail_create_nolog': True,
+            'mail_create_nosubscribe': True,
         })
 
     def _parse_rows(self, rows, first_row_number, table, seen):

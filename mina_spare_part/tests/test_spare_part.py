@@ -529,6 +529,10 @@ class TestSparePart(TransactionCase):
         self.assertAlmostEqual(in_stock.list_price, 245500.0)  # 196350 * 1.25 = 245437.5 -> 245500
         # Part without stock: the formula still provides the initial cost
         self.assertAlmostEqual(no_stock.standard_price, 196350.0)
+        # ... without an (empty) inventory revaluation
+        self.assertFalse(self.env['product.value'].search([
+            ('product_id', '=', no_stock.product_variant_id.id), ('new_cost', '=', 196350.0),
+        ]))
 
     def test_standard_cost_follows_formula(self):
         self.engine_categ.property_cost_method = 'standard'
@@ -538,3 +542,8 @@ class TestSparePart(TransactionCase):
         self.engine_rule.write({'manual_rate': 17000.0})
         self.engine_rule.action_apply_prices()
         self.assertAlmostEqual(part.standard_price, 196350.0)
+        # Standard price with stock: the stock is revalued
+        revaluation = self.env['product.value'].search([
+            ('product_id', '=', part.product_variant_id.id), ('new_cost', '=', 196350.0),
+        ])
+        self.assertEqual(revaluation.quantity, 5)
