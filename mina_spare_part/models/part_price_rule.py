@@ -95,7 +95,9 @@ class MinaPartPriceRule(models.Model):
     )
     update_cost = fields.Boolean(
         string="Update Harga Pokok (Cost)", default=True,
-        help="Jika aktif, hasil formula harga pokok juga disimpan ke field Cost produk.",
+        help="Jika aktif, hasil formula harga pokok disimpan ke field Cost produk. Untuk kategori dengan "
+             "metode Average Cost (AVCO)/FIFO, cost hanya diisi selama stok part kosong; setelah ada stok, "
+             "cost mengikuti harga beli sebenarnya dari penerimaan barang.",
     )
     apply_on_import = fields.Boolean(
         string="Hitung Harga Saat Import", default=True,
@@ -538,7 +540,11 @@ class MinaPartPriceRule(models.Model):
                 vals['list_price'] = sale
             if float_compare(product.part_reseller_price, reseller, precision_digits=6):
                 vals['part_reseller_price'] = reseller
-            if self.update_cost and float_compare(product.standard_price, cost, precision_digits=6):
+            if (
+                self.update_cost
+                and float_compare(product.standard_price, cost, precision_digits=6)
+                and product._mina_can_update_cost()
+            ):
                 vals['standard_price'] = cost
             if vals:
                 vals['part_price_date'] = now

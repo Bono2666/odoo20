@@ -2,11 +2,11 @@
     "name": "Spare Part Management",
     "summary": "Import data part Engine & Airend, part substitusi, log perubahan, "
                "setting harga jual berdasarkan kurs, integrasi Sales, Purchase & Inventory",
-    "version": "20.0.1.3.0",
+    "version": "20.0.1.4.0",
     "category": "Inventory/Products",
     "author": "Mina",
     "license": "LGPL-3",
-    "depends": ["product", "mail", "sale", "purchase"],
+    "depends": ["product", "mail", "sale_stock", "purchase_stock"],
     "external_dependencies": {"python": ["openpyxl", "xlrd"]},
     "data": [
         "security/security.xml",
@@ -25,6 +25,7 @@
         "wizard/part_substitute_wizard_views.xml",
         "views/menus.xml",
     ],
+    "post_init_hook": "post_init_hook",
     "installable": True,
     "application": True,
 }

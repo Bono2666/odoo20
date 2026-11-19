@@ -285,6 +285,13 @@ class ProductTemplate(models.Model):
                 count += rule._sync_vendor_prices(templates)
         return count
 
+    def _mina_can_update_cost(self):
+        """With Average Cost (AVCO) or FIFO the cost of a part in stock comes from its receipts:
+        the price formula only sets the initial cost of a part without stock.
+        """
+        self.ensure_one()
+        return self.cost_method == 'standard' or not self.is_storable or self.qty_available <= 0
+
     def _mina_get_substitutes(self):
         """Substitutes of the part, including the substitutes of the substitutes (A -> B -> C).
 

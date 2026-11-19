@@ -493,3 +493,48 @@ class TestSparePart(TransactionCase):
         })
         self.assertEqual(line.name, reference.name)
         self.assertEqual(line.uom_id, reference.uom_id)
+
+    # ------------------------------------------------------------------
+    # Inventory valuation
+    # ------------------------------------------------------------------
+
+    def _add_stock(self, template, quantity):
+        warehouse = self.env['stock.warehouse'].search([('company_id', '=', self.company.id)], limit=1)
+        self.env['stock.quant']._update_available_quantity(template.product_variant_id, warehouse.lot_stock_id, quantity)
+        self.env.invalidate_all()
+
+    def test_part_categories_use_average_cost(self):
+        for categ in (self.engine_categ, self.airend_categ, self.engine_categ.parent_id):
+            self.assertEqual(categ.property_cost_method, 'average')
+        sub_categ = self.env['product.category'].create({'name': "Filter", 'parent_id': self.engine_categ.id})
+        self.assertEqual(sub_categ.property_cost_method, 'average')
+        explicit = self.env['product.category'].create({
+            'name': "Gasket", 'parent_id': self.engine_categ.id, 'property_cost_method': 'standard',
+        })
+        self.assertEqual(explicit.property_cost_method, 'standard')
+
+    def test_average_cost_not_overwritten_when_in_stock(self):
+        self._import([self.header, ["AV-1", "Piston", "", 10], ["AV-2", "Liner", "", 10]])
+        in_stock, no_stock = self._part('AV-1'), self._part('AV-2')
+        initial_cost = in_stock.standard_price
+        # 10 USD * 16000 * 1.1 * 1.05
+        self.assertAlmostEqual(initial_cost, 184800.0)
+        self._add_stock(in_stock, 5)
+        self.assertEqual(in_stock.qty_available, 5)
+
+        self.engine_rule.write({'manual_rate': 17000.0})
+        self.engine_rule.action_apply_prices()
+        # Part in stock: AVCO cost kept, selling prices follow the new rate
+        self.assertAlmostEqual(in_stock.standard_price, initial_cost)
+        self.assertAlmostEqual(in_stock.list_price, 245500.0)  # 196350 * 1.25 = 245437.5 -> 245500
+        # Part without stock: the formula still provides the initial cost
+        self.assertAlmostEqual(no_stock.standard_price, 196350.0)
+
+    def test_standard_cost_follows_formula(self):
+        self.engine_categ.property_cost_method = 'standard'
+        self._import([self.header, ["ST-1", "Crank", "", 10]])
+        part = self._part('ST-1')
+        self._add_stock(part, 5)
+        self.engine_rule.write({'manual_rate': 17000.0})
+        self.engine_rule.action_apply_prices()
+        self.assertAlmostEqual(part.standard_price, 196350.0)
