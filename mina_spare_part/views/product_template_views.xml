@@ -12,6 +12,14 @@
                     <field name="part_change_log_count" widget="statinfo" string="Log Perubahan"/>
                 </button>
             </div>
+            <field name="list_price" position="attributes">
+                <attribute name="readonly">part_type</attribute>
+            </field>
+            <div name="list_price_per_uom_id" position="after">
+                <div colspan="2" class="text-muted small" invisible="not part_type">
+                    Harga jual spare part dikunci: dihitung dari Setting Harga.
+                </div>
+            </div>
             <page name="general_information" position="after">
                 <page string="Spare Part" name="mina_spare_part" invisible="not part_type">
                     <group>
@@ -48,6 +56,45 @@
                     </group>
                 </page>
             </page>
+        </field>
+    </record>
+
+    <record id="product_normal_form_view" model="ir.ui.view">
+        <field name="name">product.product.form.inherit.mina.spare.part</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_normal_form_view"/>
+        <field name="arch" type="xml">
+            <field name="lst_price" position="attributes">
+                <attribute name="readonly">part_type</attribute>
+            </field>
+        </field>
+    </record>
+
+    <record id="product_template_tree_view" model="ir.ui.view">
+        <field name="name">product.template.list.inherit.mina.spare.part</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_tree_view"/>
+        <field name="arch" type="xml">
+            <field name="list_price" position="before">
+                <field name="part_type" column_invisible="True"/>
+            </field>
+            <field name="list_price" position="attributes">
+                <attribute name="readonly">part_type</attribute>
+            </field>
+        </field>
+    </record>
+
+    <record id="product_product_tree_view" model="ir.ui.view">
+        <field name="name">product.product.list.inherit.mina.spare.part</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_product_tree_view"/>
+        <field name="arch" type="xml">
+            <field name="lst_price" position="before">
+                <field name="part_type" column_invisible="True"/>
+            </field>
+            <field name="lst_price" position="attributes">
+                <attribute name="readonly">part_type</attribute>
+            </field>
         </field>
     </record>
 

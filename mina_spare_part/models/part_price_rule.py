@@ -6,7 +6,7 @@ from odoo.fields import Command, Domain
 from odoo.tools import float_compare, float_round
 from odoo.tools.safe_eval import safe_eval
 
-from .product_template import LOG_RULE_KEY
+from .product_template import ALLOW_PRICE_WRITE_KEY, LOG_RULE_KEY
 
 DEFAULT_COST_FORMULA = (
     "price * (1 - discount / 100) * kurs * (1 + freight / 100) * (1 + duty / 100) * (1 + other / 100)"
@@ -533,7 +533,7 @@ class MinaPartPriceRule(models.Model):
         now = fields.Datetime.now()
         # The rule's context carries the change log source (import, rate update, ...).
         products = products.with_env(self.env).with_company(self.company_id).with_context(
-            tracking_disable=True, **{LOG_RULE_KEY: self.id},
+            tracking_disable=True, **{LOG_RULE_KEY: self.id, ALLOW_PRICE_WRITE_KEY: True},
         )
         reseller_prices = {}
         for product in products:

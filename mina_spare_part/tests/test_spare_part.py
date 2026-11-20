@@ -336,6 +336,27 @@ class TestSparePart(TransactionCase):
             self.env['mina.part.import']._cron_process_imports()
         self.assertEqual((part_import.state, part_import.created_count), ('done', 2))
 
+    def test_part_selling_price_locked(self):
+        self._import([self.header, ["L-1", "Gasket", "", 10]])
+        part = self._part('L-1')
+        self.assertAlmostEqual(part.list_price, 231000.0)
+        with self.assertRaises(UserError):
+            part.list_price = 100.0
+        with self.assertRaises(UserError):
+            part.product_variant_id.lst_price = 100.0
+        with self.assertRaises(UserError):
+            part.part_reseller_price = 100.0
+        # Writing the same value (e.g. a form saving all fields) and editing other fields is allowed.
+        part.write({'list_price': 231000.0, 'description_sale': "Gasket kit"})
+        # Products that are not spare parts keep a free sales price.
+        other = self.env['product.template'].create({'name': "Service", 'list_price': 10.0})
+        other.list_price = 20.0
+        self.assertEqual(other.list_price, 20.0)
+        # The price rule still updates the price.
+        self.engine_rule.margin_pct = 50.0
+        self.engine_rule.action_apply_prices()
+        self.assertAlmostEqual(part.list_price, 277200.0)
+
     def test_change_reseller_pricelist_moves_prices(self):
         Pricelist = self.env['product.pricelist']
         old_pricelist = Pricelist.create({'name': "Umum", 'currency_id': self.company.currency_id.id})

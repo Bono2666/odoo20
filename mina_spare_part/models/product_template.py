@@ -2,6 +2,7 @@ import re
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
+from odoo.tools import float_compare
 
 SUBSTITUTE_SEPARATOR_RE = re.compile(r'[,;|\n\r]+')
 
@@ -12,6 +13,10 @@ LOG_RULE_KEY = 'mina_part_rule_id'
 NO_LOG_KEY = 'mina_part_no_log'
 SKIP_SUBSTITUTE_KEY = 'mina_part_skip_substitute'
 SKIP_VENDOR_SYNC_KEY = 'mina_part_skip_vendor_sync'
+# Set by the price rules: the only way to change the selling prices of a spare part.
+ALLOW_PRICE_WRITE_KEY = 'mina_part_price_write'
+# Selling prices of a spare part, computed by its price rule and locked for manual edits.
+LOCKED_PRICE_FIELDS = ('list_price', 'part_reseller_price')
 
 # Fields copied to the vendor price (product.supplierinfo) of the principal.
 VENDOR_SYNC_FIELDS = {'part_list_price', 'part_currency_id', 'part_lead_time', 'categ_id', 'default_code'}
@@ -116,6 +121,7 @@ class ProductTemplate(models.Model):
         return templates
 
     def write(self, vals):
+        self._mina_check_locked_prices(vals)
         fnames = [fname for fname in self._mina_logged_fields() if fname in vals]
         if not fnames or self.env.context.get(NO_LOG_KEY):
             res = super().write(vals)
@@ -225,6 +231,26 @@ class ProductTemplate(models.Model):
         if field.type == 'selection':
             return dict(field._description_selection(self.env)).get(value, '')
         return value or ''
+
+    def _mina_check_locked_prices(self, vals):
+        """The selling prices of a spare part come from its price rule (import, rate update,
+        recompute): a manual change would be overwritten by the next recompute."""
+        if self.env.context.get(ALLOW_PRICE_WRITE_KEY):
+            return
+        fnames = [fname for fname in LOCKED_PRICE_FIELDS if fname in vals]
+        if not fnames:
+            return
+        changed = self.filtered(lambda template: template.part_type and any(
+            float_compare(template[fname], vals[fname] or 0.0, precision_digits=6) for fname in fnames
+        ))
+        if changed:
+            raise UserError(self.env._(
+                "Harga jual spare part dikunci dan tidak bisa diubah manual (%(parts)s).\n"
+                "Harga dihitung dari Setting Harga: ubah kurs, margin atau formula di Setting Harga, "
+                "lalu hitung ulang harga.",
+                parts=", ".join(changed[:5].mapped(lambda t: t.default_code or t.name))
+                + (", ..." if len(changed) > 5 else ""),
+            ))
 
     def _mina_initial_values_summary(self):
         """Data of a new part for the change log, e.g. "Harga Principal: 10 | Mata Uang: USD | ..."."""
