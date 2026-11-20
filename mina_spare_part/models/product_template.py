@@ -17,6 +17,13 @@ SKIP_VENDOR_SYNC_KEY = 'mina_part_skip_vendor_sync'
 VENDOR_SYNC_FIELDS = {'part_list_price', 'part_currency_id', 'part_lead_time', 'categ_id', 'default_code'}
 # Depth limit when following substitutes of substitutes (A -> B -> C).
 SUBSTITUTE_MAX_DEPTH = 10
+# Initial values written in the change log when a part is created (empty values are left out).
+CREATE_LOG_FIELDS = [
+    'name', 'categ_id', 'part_list_price', 'part_currency_id', 'part_lead_time', 'part_stock_jpn',
+    'part_availability', 'substitute_part_numbers', 'weight', 'uom_id', 'part_application', 'part_remarks',
+    'list_price', 'part_reseller_price', 'standard_price',
+]
+CREATE_LOG_SEPARATOR = ' | '
 
 
 def split_part_numbers(value):
@@ -99,7 +106,7 @@ class ProductTemplate(models.Model):
         parts = templates.filtered('part_type')
         if parts and not self.env.context.get(NO_LOG_KEY):
             self.env['mina.part.change.log'].sudo().create([
-                template._mina_prepare_log_vals('create', new_value=template.display_name)
+                template._mina_prepare_log_vals('create', new_value=template._mina_initial_values_summary())
                 for template in parts
             ])
         if parts and not self.env.context.get(SKIP_SUBSTITUTE_KEY):
@@ -218,6 +225,15 @@ class ProductTemplate(models.Model):
         if field.type == 'selection':
             return dict(field._description_selection(self.env)).get(value, '')
         return value or ''
+
+    def _mina_initial_values_summary(self):
+        """Data of a new part for the change log, e.g. "Harga Principal: 10 | Mata Uang: USD | ..."."""
+        self.ensure_one()
+        return CREATE_LOG_SEPARATOR.join(
+            f"{self._fields[fname]._description_string(self.env)}: {self._mina_log_value(fname)}"
+            for fname in CREATE_LOG_FIELDS
+            if self[fname]
+        )
 
     def _mina_prepare_log_vals(self, change_type, fname=None, old_value='', new_value=''):
         self.ensure_one()

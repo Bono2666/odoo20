@@ -99,6 +99,15 @@ class TestSparePart(TransactionCase):
         self.assertEqual(part_import.priced_count, 2)
         create_logs = part_import.change_log_ids.filtered(lambda log: log.change_type == 'create')
         self.assertEqual(len(create_logs), 2)
+        # The creation log holds the initial data of the part (empty values are left out).
+        old_log = create_logs.filtered(lambda log: log.product_tmpl_id == old)
+        details = old_log.new_value.split(' | ')
+        self.assertIn(f"{old._fields['name']._description_string(self.env)}: Oil Filter", details)
+        self.assertIn("Mata Uang Harga Principal: USD", details)
+        self.assertIn("No. Part Substitusi: P-002", details)
+        self.assertTrue(any(item.startswith("Harga Principal") and item.endswith(": 10") for item in details), details)
+        self.assertFalse(any(item.startswith("Remarks") for item in details), details)
+        self.assertEqual(old_log.source, 'import')
 
     def test_import_update_only_changes_and_logs(self):
         self._import([self.header, ["P-001", "Oil Filter", "", 10], ["P-002", "Fuel Filter", "", 20]])
