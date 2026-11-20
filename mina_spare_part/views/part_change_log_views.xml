@@ -74,7 +74,7 @@
                         domain="[('field_name', '=', 'substitute_part_numbers')]"/>
                 <separator/>
                 <filter string="Engine" name="engine" domain="[('part_type', '=', 'engine')]"/>
-                <filter string="Airend (Compressor)" name="airend" domain="[('part_type', '=', 'airend')]"/>
+                <filter string="Air End (Compressor)" name="airend" domain="[('part_type', '=', 'airend')]"/>
                 <separator/>
                 <filter string="Tanggal" name="filter_date" date="date"/>
                 <group>

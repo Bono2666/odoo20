@@ -63,7 +63,7 @@
             <filter name="combo" position="after">
                 <separator/>
                 <filter string="Part Engine" name="mina_part_engine" domain="[('part_type', '=', 'engine')]"/>
-                <filter string="Part Airend (Compressor)" name="mina_part_airend" domain="[('part_type', '=', 'airend')]"/>
+                <filter string="Part Air End (Compressor)" name="mina_part_airend" domain="[('part_type', '=', 'airend')]"/>
                 <filter string="Punya Substitusi" name="mina_part_has_substitute"
                         domain="[('substitute_part_numbers', '!=', False)]"/>
                 <filter string="Substitusi Belum Ditemukan" name="mina_part_substitute_missing"
@@ -128,7 +128,7 @@
         ]"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Belum ada data part</p>
-            <p>Upload file part Engine atau Airend (Compressor) dari menu Import Data Part.</p>
+            <p>Upload file part Engine atau Air End (Compressor) dari menu Import Data Part.</p>
         </field>
     </record>
 

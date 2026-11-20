@@ -143,7 +143,7 @@
                 <field name="file_name"/>
                 <field name="user_id"/>
                 <filter string="Engine" name="engine" domain="[('part_type', '=', 'engine')]"/>
-                <filter string="Airend (Compressor)" name="airend" domain="[('part_type', '=', 'airend')]"/>
+                <filter string="Air End (Compressor)" name="airend" domain="[('part_type', '=', 'airend')]"/>
                 <separator/>
                 <filter string="Ada Error" name="has_error" domain="[('error_count', '&gt;', 0)]"/>
                 <group>
@@ -161,7 +161,7 @@
         <field name="view_mode">list,form</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Upload file data part</p>
-            <p>Pilih jenis file (Engine atau Airend/Compressor), upload file, lalu klik Proses Import.</p>
+            <p>Pilih jenis file (Engine atau Air End (Compressor)), upload file, lalu klik Proses Import.</p>
         </field>
     </record>
 

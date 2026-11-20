@@ -2,7 +2,7 @@ from odoo import api, fields, models
 
 PART_TYPES = [
     ('engine', "Engine"),
-    ('airend', "Airend (Compressor)"),
+    ('airend', "Air End (Compressor)"),
 ]
 
 

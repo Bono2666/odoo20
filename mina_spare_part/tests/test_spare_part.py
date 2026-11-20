@@ -140,7 +140,7 @@ class TestSparePart(TransactionCase):
 
     def test_engine_and_airend_are_separated(self):
         self._import([self.header, ["X-100", "Engine Part", "", 5]])
-        airend_import = self._import([self.header, ["X-100", "Airend Part", "", 7]], part_type='airend')
+        airend_import = self._import([self.header, ["X-100", "Air End Part", "", 7]], part_type='airend')
         self.assertEqual(airend_import.created_count, 1)
         self.assertEqual(self._part('X-100').name, "Engine Part")
         airend_part = self._part('X-100', 'airend')
@@ -408,7 +408,7 @@ class TestSparePart(TransactionCase):
 
     def test_vendor_price_sync_existing_parts_in_background(self):
         self._import([self.header, ["W-1", "Valve", "", 10], ["W-2", "Spring", "", 20]], part_type='airend')
-        vendor = self.env['res.partner'].create({'name': "Principal Airend"})
+        vendor = self.env['res.partner'].create({'name': "Principal Air End"})
         with patch.object(part_price_rule_module, 'RECOMPUTE_SYNC_LIMIT', 1):
             self.airend_rule.vendor_id = vendor
         self.assertEqual(self.airend_rule.vendor_sync_state, 'pending')

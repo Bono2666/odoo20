@@ -17,7 +17,7 @@ class MinaPartRateUpdate(models.TransientModel):
     apply_same_currency = fields.Boolean(
         string="Terapkan ke Semua Setting Mata Uang Ini", default=True,
         help="Kurs baru juga dipakai oleh setting harga lain dengan mata uang yang sama "
-             "(misalnya Engine dan Airend sama-sama USD).",
+             "(misalnya Engine dan Air End sama-sama USD).",
     )
     update_odoo_rate = fields.Boolean(
         string="Update Kurs di Odoo",

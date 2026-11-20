@@ -12,7 +12,7 @@
     </record>
 
     <record id="product_category_airend" model="product.category">
-        <field name="name">Airend (Compressor)</field>
+        <field name="name">Air End (Compressor)</field>
         <field name="parent_id" ref="product_category_spare_part"/>
         <field name="part_type">airend</field>
     </record>
@@ -26,7 +26,7 @@
     </record>
 
     <record id="part_price_rule_airend" model="mina.part.price.rule">
-        <field name="name">Harga Part Airend (Compressor)</field>
+        <field name="name">Harga Part Air End (Compressor)</field>
         <field name="sequence">20</field>
         <field name="category_id" ref="product_category_airend"/>
         <field name="currency_id" ref="base.JPY"/>

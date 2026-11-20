@@ -73,7 +73,7 @@ COLUMN_ALIASES = {
     ],
 }
 
-# Column order of the principal catalog ("Data" sheet of the Engine and Airend catalogs).
+# Column order of the principal catalog ("Data" sheet of the Engine and Air End catalogs).
 # Used when the header is unreadable, e.g. a CSV export that turned the Japanese header into "????".
 PRINCIPAL_LAYOUT = [
     'default_code', 'substitute_part_numbers', 'name', 'lead_time', 'stock_jpn', 'part_list_price',
@@ -161,7 +161,7 @@ class MinaPartImport(models.Model):
     name = fields.Char(string="No. Import", required=True, readonly=True, copy=False, default="/")
     part_type = fields.Selection(
         PART_TYPES, string="Jenis File", required=True, default='engine', tracking=True,
-        help="Engine: file part engine. Airend: file part airend (compressor). "
+        help="Engine: file part engine. Air End: file part air end (compressor). "
              "Part dari kedua file dibedakan berdasarkan kategori produk.",
     )
     categ_id = fields.Many2one(
