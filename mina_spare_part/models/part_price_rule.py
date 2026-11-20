@@ -78,7 +78,9 @@ class MinaPartPriceRule(models.Model):
     reseller_pricelist_id = fields.Many2one(
         'product.pricelist', string="Pricelist Reseller", check_company=True, tracking=True,
         help="Jika diisi, harga reseller juga disimpan sebagai harga tetap (fixed price) di pricelist ini, "
-             "sehingga bisa dipakai di penawaran/order penjualan untuk customer reseller.",
+             "sehingga bisa dipakai di penawaran/order penjualan untuk customer reseller. "
+             "Jangan pilih pricelist yang dipakai customer umum. Jika pricelist diganti, harga reseller "
+             "di pricelist lama dihapus dan harga dihitung ulang ke pricelist baru.",
     )
     vendor_id = fields.Many2one(
         'res.partner', string="Vendor Principal", check_company=True, tracking=True,
@@ -200,9 +202,15 @@ class MinaPartPriceRule(models.Model):
         return rules
 
     def write(self, vals):
+        old_pricelists = {rule.id: rule.reseller_pricelist_id for rule in self} if 'reseller_pricelist_id' in vals else {}
         res = super().write(vals)
         if vals.get('vendor_id'):
             self._start_vendor_sync()
+        changed = self.filtered(lambda r: r.id in old_pricelists and old_pricelists[r.id] != r.reseller_pricelist_id)
+        for rule in changed:
+            rule._remove_reseller_pricelist_items(old_pricelists[rule.id])
+        if changed.filtered('reseller_pricelist_id'):
+            changed.filtered('reseller_pricelist_id')._start_recompute('rule')
         return res
 
     # ------------------------------------------------------------------
@@ -568,6 +576,7 @@ class MinaPartPriceRule(models.Model):
         """
         Item = self.env['product.pricelist.item'].with_context(active_test=False)
         templates = self.env['product.template'].browse([template.id for template in reseller_prices])
+        # An existing fixed price of the part in the pricelist is taken over (and tagged with the rule).
         items = Item.search([
             ('pricelist_id', '=', self.reseller_pricelist_id.id),
             ('applied_on', '=', '1_product'),
@@ -586,8 +595,31 @@ class MinaPartPriceRule(models.Model):
                     'product_tmpl_id': template.id,
                     'compute_price': 'fixed',
                     'fixed_price': price,
+                    'mina_part_rule_id': self.id,
                 })
-            elif item.compute_price != 'fixed' or float_compare(item.fixed_price, price, precision_digits=6):
-                item.write({'compute_price': 'fixed', 'fixed_price': price})
+            elif (
+                item.compute_price != 'fixed'
+                or float_compare(item.fixed_price, price, precision_digits=6)
+                or item.mina_part_rule_id != self
+            ):
+                item.write({'compute_price': 'fixed', 'fixed_price': price, 'mina_part_rule_id': self.id})
         if to_create:
             self.reseller_pricelist_id.item_ids = [Command.create(vals) for vals in to_create]
+
+    def _remove_reseller_pricelist_items(self, pricelist):
+        """Remove the reseller prices this rule wrote in a pricelist it does not use anymore."""
+        self.ensure_one()
+        if not pricelist:
+            return 0
+        items = self.env['product.pricelist.item'].sudo().with_context(active_test=False).search([
+            ('pricelist_id', '=', pricelist.id),
+            ('mina_part_rule_id', '=', self.id),
+        ])
+        count = len(items)
+        items.unlink()
+        if count:
+            self.message_post(body=self.env._(
+                "%(count)s harga reseller dihapus dari pricelist %(pricelist)s.",
+                count=count, pricelist=pricelist.display_name,
+            ))
+        return count

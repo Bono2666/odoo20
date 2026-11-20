@@ -336,6 +336,32 @@ class TestSparePart(TransactionCase):
             self.env['mina.part.import']._cron_process_imports()
         self.assertEqual((part_import.state, part_import.created_count), ('done', 2))
 
+    def test_change_reseller_pricelist_moves_prices(self):
+        Pricelist = self.env['product.pricelist']
+        old_pricelist = Pricelist.create({'name': "Umum", 'currency_id': self.company.currency_id.id})
+        new_pricelist = Pricelist.create({'name': "Reseller", 'currency_id': self.company.currency_id.id})
+        self.engine_rule.reseller_pricelist_id = old_pricelist
+        self._import([self.header, ["H-1", "Ring", "", 10], ["H-2", "Seal", "", 20]])
+        ring = self._part('H-1')
+        # A price added by hand in the old pricelist is not managed by the rule and stays.
+        manual = self.env['product.pricelist.item'].create({
+            'pricelist_id': old_pricelist.id, 'applied_on': '0_product_variant',
+            'product_id': self.env['product.product'].create({'name': "Other"}).id,
+            'compute_price': 'fixed', 'fixed_price': 5.0,
+        })
+        self.assertEqual(len(old_pricelist.item_ids), 3)
+        self.assertEqual(old_pricelist.item_ids.mina_part_rule_id, self.engine_rule)
+
+        self.engine_rule.reseller_pricelist_id = new_pricelist
+        self.assertEqual(old_pricelist.item_ids, manual)
+        self.assertEqual(len(new_pricelist.item_ids), 2)
+        item = new_pricelist.item_ids.filtered(lambda i: i.product_tmpl_id == ring)
+        self.assertAlmostEqual(item.fixed_price, ring.part_reseller_price)
+        self.assertEqual(item.mina_part_rule_id, self.engine_rule)
+
+        self.engine_rule.reseller_pricelist_id = False
+        self.assertFalse(new_pricelist.item_ids)
+
     def test_recompute_in_background_and_reseller_pricelist(self):
         pricelist = self.env['product.pricelist'].create({
             'name': "Reseller", 'currency_id': self.company.currency_id.id,

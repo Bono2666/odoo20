@@ -2,7 +2,7 @@
     "name": "Spare Part Management",
     "summary": "Import data part Engine & Air End, part substitusi, log perubahan, "
                "setting harga jual berdasarkan kurs, integrasi Sales, Purchase & Inventory",
-    "version": "20.0.1.5.0",
+    "version": "20.0.1.6.0",
     "category": "Inventory/Products",
     "author": "Mina",
     "license": "LGPL-3",
