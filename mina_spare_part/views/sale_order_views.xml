@@ -15,6 +15,11 @@
                        decoration-success="mina_part_availability == 'available'"
                        decoration-warning="mina_part_availability == 'substituted'"
                        decoration-danger="mina_part_availability == 'discontinued'"/>
+                <field name="mina_part_replacement_id" optional="show" invisible="not mina_part_replacement_id"
+                       options="{'no_open': True}"/>
+                <field name="mina_part_replacement_price" optional="show" invisible="not mina_part_replacement_id"/>
+                <field name="mina_part_earliest_ids" optional="show" widget="many2many_tags"
+                       invisible="not mina_part_earliest_ids"/>
                 <button name="action_mina_open_substitute" type="object" icon="fa-exchange"
                         title="Ganti dengan Part Substitusi"
                         invisible="not mina_substitute_count or parent.state not in ('draft', 'sent')"/>
@@ -27,6 +32,9 @@
                        decoration-success="mina_part_availability == 'available'"
                        decoration-warning="mina_part_availability == 'substituted'"
                        decoration-danger="mina_part_availability == 'discontinued'"/>
+                <field name="mina_part_replacement_id" invisible="not mina_part_replacement_id"/>
+                <field name="mina_part_replacement_price" invisible="not mina_part_replacement_id"/>
+                <field name="mina_part_earliest_ids" widget="many2many_tags" invisible="not mina_part_earliest_ids"/>
             </xpath>
         </field>
     </record>

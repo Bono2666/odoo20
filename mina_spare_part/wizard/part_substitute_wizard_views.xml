@@ -18,12 +18,16 @@
                         <field name="qty_available"/>
                     </group>
                 </group>
+                <field name="sale_line_id" invisible="1"/>
                 <field name="line_ids" readonly="1">
-                    <list create="0" delete="0">
+                    <list create="0" delete="0" decoration-muted="role == 'earliest'" decoration-bf="is_recommended">
                         <field name="currency_id" column_invisible="True"/>
+                        <field name="order_currency_id" column_invisible="True"/>
                         <field name="level"/>
+                        <field name="role" widget="badge" decoration-info="role == 'earliest'"/>
                         <field name="default_code"/>
                         <field name="product_tmpl_id"/>
+                        <field name="is_recommended" widget="boolean_toggle" readonly="1" optional="show"/>
                         <field name="part_availability" widget="badge"
                                decoration-success="part_availability == 'available'"
                                decoration-warning="part_availability == 'substituted'"
@@ -32,9 +36,11 @@
                                decoration-success="qty_available &gt; 0"/>
                         <field name="part_stock_jpn" optional="show"/>
                         <field name="part_lead_time" optional="show"/>
-                        <field name="part_reseller_price" optional="show"/>
-                        <field name="list_price" widget="monetary" options="{'currency_field': 'currency_id'}"/>
-                        <button name="action_select" type="object" string="Pilih" icon="fa-check" class="btn-primary"/>
+                        <field name="order_price" column_invisible="not parent.sale_line_id"/>
+                        <field name="part_reseller_price" optional="hide"/>
+                        <field name="list_price" widget="monetary" options="{'currency_field': 'currency_id'}" optional="hide"/>
+                        <button name="action_select" type="object" string="Pilih" icon="fa-check" class="btn-primary"
+                                invisible="role != 'substitute'"/>
                     </list>
                 </field>
                 <footer>

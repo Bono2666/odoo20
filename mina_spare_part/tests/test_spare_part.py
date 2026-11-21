@@ -502,6 +502,7 @@ class TestSparePart(TransactionCase):
         wizard = self.env['mina.part.substitute.wizard'].browse(action['res_id'])
         self.assertEqual(wizard.line_ids.mapped('product_tmpl_id'), new | newer)
         self.assertEqual(wizard.line_ids.mapped('level'), [1, 2])
+        self.assertEqual(wizard.line_ids.filtered('is_recommended').product_tmpl_id, new)
         wizard.line_ids.filtered(lambda l: l.product_tmpl_id == newer).action_select()
 
         self.assertEqual(line.product_id, newer.product_variant_id)
@@ -515,6 +516,58 @@ class TestSparePart(TransactionCase):
         order.action_confirm()
         with self.assertRaises(UserError):
             line.action_mina_open_substitute()
+
+    def test_sale_substitute_chain_earliest_and_recommended(self):
+        # S-1 and S-1B were replaced by S-2, then S-3, then S-4: only S-4 has a principal price.
+        self._import([
+            self.header,
+            ["S-1", "Filter Generasi 1", "S-2", ""],
+            ["S-1B", "Filter Varian", "S-2", ""],
+            ["S-2", "Filter Generasi 2", "S-3", ""],
+            ["S-3", "Filter Generasi 3", "S-4", ""],
+            ["S-4", "Filter Generasi 4", "", 12],
+        ])
+        g1, g1b, g2, g3, g4 = (self._part(code) for code in ('S-1', 'S-1B', 'S-2', 'S-3', 'S-4'))
+        g2.part_availability = 'substituted'
+        self.assertFalse(g3.list_price)
+        self.assertTrue(g4.list_price)
+        self.assertEqual(g2._mina_get_earliest_parts(), g1 | g1b)
+        self.assertEqual(g4._mina_get_earliest_parts(), g1 | g1b, "Earliest parts of the whole chain")
+        self.assertFalse(g1._mina_get_earliest_parts())
+
+        customer = self.env['res.partner'].create({'name': "Customer Chain"})
+        order = self.env['sale.order'].create({
+            'partner_id': customer.id,
+            'order_line': [Command.create({'product_id': g2.product_variant_id.id, 'product_uom_qty': 2})],
+        })
+        line = order.order_line
+        self.assertEqual(line.mina_part_replacement_id, g4, "Closest substitute with a selling price")
+        self.assertAlmostEqual(line.mina_part_replacement_price, g4.list_price)
+        self.assertEqual(line.mina_part_earliest_ids, g1 | g1b)
+
+        message = line._mina_onchange_product_substitute()['warning']['message']
+        self.assertIn("Part paling awal di rangkaian ini: [S-1] Filter Generasi 1, [S-1B] Filter Varian", message)
+        self.assertIn("- Level 1: [S-3] Filter Generasi 3, harga jual belum ada", message)
+        self.assertIn("- Level 2: [S-4] Filter Generasi 4, harga ", message)
+        self.assertIn("Rekomendasi pengganti: [S-4] Filter Generasi 4", message)
+
+        action = line.action_mina_open_substitute()
+        wizard = self.env['mina.part.substitute.wizard'].browse(action['res_id'])
+        self.assertEqual(
+            [(l.product_tmpl_id, l.role, l.level) for l in wizard.line_ids],
+            [(g1, 'earliest', -1), (g1b, 'earliest', -1), (g3, 'substitute', 1), (g4, 'substitute', 2)],
+        )
+        recommended = wizard.line_ids.filtered('is_recommended')
+        self.assertEqual(recommended.product_tmpl_id, g4)
+        self.assertAlmostEqual(recommended.order_price, g4.list_price)
+        with self.assertRaises(UserError):
+            wizard.line_ids[0].action_select()
+        recommended.action_select()
+        self.assertEqual(line.product_id, g4.product_variant_id)
+        self.assertEqual(line.product_uom_qty, 2)
+        self.assertAlmostEqual(line.price_unit, g4.list_price)
+        self.assertFalse(line.mina_part_replacement_id)
+        self.assertEqual(line.mina_part_earliest_ids, g1 | g1b)
 
     def test_sale_warning_out_of_stock_with_substitute(self):
         old, new, newer = self._substitute_chain()

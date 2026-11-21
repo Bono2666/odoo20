@@ -28,13 +28,28 @@ class MinaPartSubstituteWizard(models.TransientModel):
         substitutes, levels = template._mina_get_substitutes()
         if not substitutes:
             raise UserError(self.env._("Part %s tidak punya part substitusi.", template.display_name))
-        line_field = 'sale_line_id' if order_line._name == 'sale.order.line' else 'purchase_line_id'
+        is_sale = order_line._name == 'sale.order.line'
+        recommended = template._mina_get_recommended_substitute(substitutes)
+        origins, origin_levels = template._mina_get_origins()
+        earliest = origins.filtered(lambda t: not t.substitute_for_ids)
+
+        def line_vals(part, level, role):
+            return {
+                'product_tmpl_id': part.id,
+                'level': level,
+                'role': role,
+                'is_recommended': part == recommended,
+                'order_price': order_line._mina_order_price(part) if is_sale else 0.0,
+                'order_currency_id': order_line.currency_id.id,
+            }
+
         wizard = self.create({
-            line_field: order_line.id,
+            'sale_line_id' if is_sale else 'purchase_line_id': order_line.id,
             'product_tmpl_id': template.id,
             'line_ids': [
-                Command.create({'product_tmpl_id': substitute.id, 'level': levels[substitute.id]})
-                for substitute in substitutes
+                Command.create(line_vals(part, origin_levels[part.id], 'earliest')) for part in earliest
+            ] + [
+                Command.create(line_vals(substitute, levels[substitute.id], 'substitute')) for substitute in substitutes
             ],
         })
         return {
@@ -70,10 +85,21 @@ class MinaPartSubstituteWizardLine(models.TransientModel):
     _order = 'level, id'
 
     wizard_id = fields.Many2one('mina.part.substitute.wizard', required=True, ondelete='cascade')
-    product_tmpl_id = fields.Many2one('product.template', string="Part Substitusi", required=True, readonly=True)
+    product_tmpl_id = fields.Many2one('product.template', string="Part", required=True, readonly=True)
     level = fields.Integer(
         string="Level", readonly=True,
-        help="1 = substitusi langsung, 2 = substitusi dari part substitusi, dan seterusnya.",
+        help="1 = substitusi langsung, 2 = substitusi dari part substitusi, dan seterusnya. "
+             "Angka negatif = part lama yang digantikan (part paling awal di rangkaian).",
+    )
+    role = fields.Selection(
+        [('earliest', "Paling Awal"), ('substitute', "Pengganti")], string="Posisi", readonly=True,
+        default='substitute',
+    )
+    is_recommended = fields.Boolean(string="Rekomendasi", readonly=True)
+    order_currency_id = fields.Many2one('res.currency', readonly=True)
+    order_price = fields.Monetary(
+        string="Harga Jual", currency_field='order_currency_id', readonly=True,
+        help="Harga jual sesuai pricelist order.",
     )
     default_code = fields.Char(related='product_tmpl_id.default_code', string="Part No.")
     part_availability = fields.Selection(related='product_tmpl_id.part_availability')
@@ -86,5 +112,7 @@ class MinaPartSubstituteWizardLine(models.TransientModel):
 
     def action_select(self):
         self.ensure_one()
+        if self.role != 'substitute':
+            raise UserError(self.env._("Pilih salah satu part pengganti."))
         self.wizard_id._replace_with(self.product_tmpl_id)
         return {'type': 'ir.actions.act_window_close'}

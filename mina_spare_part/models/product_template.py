@@ -2,7 +2,7 @@ import re
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
-from odoo.tools import float_compare
+from odoo.tools import float_compare, format_amount
 
 SUBSTITUTE_SEPARATOR_RE = re.compile(r'[,;|\n\r]+')
 
@@ -359,16 +359,55 @@ class ProductTemplate(models.Model):
             level += 1
         return substitutes, levels
 
-    def _mina_substitute_warning(self, check_stock=False):
+    def _mina_get_origins(self):
+        """Parts replaced by this part, up the chain (A <- B <- C, several parts may be replaced by one).
+
+        :return: (product.template recordset ordered earliest first, {template id: negative level})
+        """
+        self.ensure_one()
+        origins = self.browse()
+        levels = {}
+        seen = self
+        frontier = self.substitute_for_ids
+        level = -1
+        while frontier and -level <= SUBSTITUTE_MAX_DEPTH:
+            frontier -= seen
+            for template in frontier:
+                levels[template.id] = level
+            origins |= frontier
+            seen |= frontier
+            frontier = frontier.substitute_for_ids
+            level -= 1
+        return origins.sorted(lambda template: (levels[template.id], template.id)), levels
+
+    def _mina_get_earliest_parts(self):
+        """Earliest produced parts of the substitution chain of this part (not replacing any other part)."""
+        self.ensure_one()
+        return self._mina_get_origins()[0].filtered(lambda template: not template.substitute_for_ids)
+
+    @api.model
+    def _mina_get_recommended_substitute(self, substitutes):
+        """Closest substitute that can be sold: with a sales price, available first, never discontinued
+        unless nothing else has a price."""
+        priced = substitutes.filtered(lambda template: template.sale_ok and template.list_price > 0)
+        return (
+            priced.filtered(lambda template: template.part_availability == 'available')
+            or priced.filtered(lambda template: template.part_availability != 'discontinued')
+            or priced
+        )[:1]
+
+    def _mina_substitute_warning(self, check_stock=False, price_func=None, currency=None):
         """Warning shown when the part is put on an order while it should be replaced.
 
         :param check_stock: also warn when the part is out of stock and has substitutes (sales)
+        :param price_func: function(product.template) -> selling price for the order (sales)
+        :param currency: currency of the prices returned by ``price_func``
         :return: message or False
         """
         self.ensure_one()
         if not self.part_type:
             return False
-        substitutes = self._mina_get_substitutes()[0]
+        substitutes, levels = self._mina_get_substitutes()
         if self.part_availability == 'substituted':
             reason = self.env._("Part %s berstatus Diganti Substitusi.", self.display_name)
         elif self.part_availability == 'discontinued':
@@ -377,12 +416,29 @@ class ProductTemplate(models.Model):
             reason = self.env._("Stok part %s kosong.", self.display_name)
         else:
             return False
+        lines = [reason]
+        earliest = self._mina_get_earliest_parts()
+        if earliest:
+            lines.append(self.env._("Part paling awal di rangkaian ini: %s", ", ".join(earliest.mapped('display_name'))))
         if not substitutes:
-            return reason + " " + self.env._("Tidak ada part substitusi di master data.")
-        lines = [
+            lines.append(self.env._("Tidak ada part substitusi di master data."))
+            return "\n".join(lines)
+
+        def price_text(template):
+            if not price_func:
+                return ""
+            price = price_func(template)
+            if not price:
+                return self.env._("harga jual belum ada") + " | "
+            return self.env._("harga %s", format_amount(self.env, price, currency or template.currency_id)) + " | "
+
+        lines.append(self.env._("Part pengganti:"))
+        lines += [
             self.env._(
-                "- %(part)s: stok %(qty)s, stock JPN %(jpn)s, lead time %(lead)s hari, %(availability)s",
+                "- Level %(level)s: %(part)s, %(price)sstok %(qty)s | stock JPN %(jpn)s | lead time %(lead)s hari | %(availability)s",
+                level=levels[substitute.id],
                 part=substitute.display_name,
+                price=price_text(substitute),
                 qty=f"{substitute.qty_available:g}",
                 jpn=f"{substitute.part_stock_jpn:g}",
                 lead=substitute.part_lead_time,
@@ -390,9 +446,10 @@ class ProductTemplate(models.Model):
             )
             for substitute in substitutes
         ]
-        return "\n".join([
-            reason,
-            self.env._("Part substitusi:"),
-            *lines,
-            self.env._("Gunakan tombol Substitusi pada baris order untuk mengganti part."),
-        ])
+        recommended = self._mina_get_recommended_substitute(substitutes)
+        if recommended:
+            lines.append(self.env._("Rekomendasi pengganti: %s", recommended.display_name))
+        else:
+            lines.append(self.env._("Belum ada part pengganti yang punya harga jual."))
+        lines.append(self.env._("Gunakan tombol Substitusi pada baris order untuk mengganti part."))
+        return "\n".join(lines)

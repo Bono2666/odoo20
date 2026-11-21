@@ -1,5 +1,6 @@
 from . import product_category
 from . import product_template
+from . import product_product
 from . import part_change_log
 from . import part_price_rule
 from . import product_pricelist_item
