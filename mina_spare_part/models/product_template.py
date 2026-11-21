@@ -336,7 +336,8 @@ class ProductTemplate(models.Model):
 
     def _mina_has_stock(self):
         self.ensure_one()
-        return self.is_storable and self.qty_available > 0
+        # Spare Part managers may have no Inventory rights: the stock check is internal to the pricing.
+        return self.is_storable and self.sudo().qty_available > 0
 
     def _mina_get_substitutes(self):
         """Substitutes of the part, including the substitutes of the substitutes (A -> B -> C).

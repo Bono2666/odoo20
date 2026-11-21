@@ -185,6 +185,48 @@ class TestSparePart(TransactionCase):
         history = self.engine_rule.rate_history_ids
         self.assertEqual((history.old_rate, history.new_rate), (16000.0, 17000.0))
 
+    def test_rate_update_by_spare_part_manager(self):
+        """A Spare Part Administrator without other rights can update the rate, also when the
+        prices are recomputed by the background job (which runs as that user)."""
+        pricelist = self.env['product.pricelist'].create({
+            'name': "Reseller", 'currency_id': self.company.currency_id.id,
+        })
+        self.engine_rule.reseller_pricelist_id = pricelist
+        self._import([self.header, ["M-1", "Bearing", "", 10], ["M-2", "Seal", "", 20]])
+        self._import([self.header, ["M-3", "Rotor", "", 10]], part_type='airend')
+        manager = self.env['res.users'].create({
+            'name': "Spare Part Manager",
+            'login': 'mina_part_manager',
+            'company_id': self.company.id,
+            'company_ids': [Command.set(self.company.ids)],
+            'group_ids': [Command.set([
+                self.env.ref('base.group_user').id,
+                self.env.ref('mina_spare_part.mina_spare_part_group_manager').id,
+            ])],
+        })
+        self.engine_rule.rate_source = 'odoo'
+        Wizard = self.env['mina.part.rate.update'].with_user(manager)
+        Wizard.create({'rule_id': self.engine_rule.id, 'new_rate': 17000.0}).action_confirm()
+        for code, part_type in (('M-1', 'engine'), ('M-3', 'airend')):
+            self.assertAlmostEqual(self._part(code, part_type).list_price, 245500.0)
+        self.assertEqual(self.engine_rule.rate_history_ids.products_updated, 2)
+        self.assertEqual(self.airend_rule.rate_history_ids.products_updated, 1)
+        self.assertEqual(self.engine_rule.rate_history_ids.user_id, manager)
+
+        with patch.object(part_price_rule_module, 'RECOMPUTE_SYNC_LIMIT', 1):
+            Wizard.create({'rule_id': self.engine_rule.id, 'new_rate': 18000.0}).action_confirm()
+        self.assertEqual(self.engine_rule.recompute_state, 'pending')
+        self.assertEqual(self.engine_rule.recompute_user_id, manager)
+        with self._commit_patch():
+            self.env['mina.part.price.rule']._cron_recompute_prices()
+        self.assertEqual(self.engine_rule.recompute_state, 'done')
+        latest = self.engine_rule.rate_history_ids.sorted('id')[-1:]
+        self.assertEqual((latest.new_rate, latest.products_updated), (18000.0, 2))
+        # 10 * 18000 * 1.155 = 207900 ; * 1.25 = 259875 -> 259900
+        for code, part_type in (('M-1', 'engine'), ('M-3', 'airend')):
+            self.assertAlmostEqual(self._part(code, part_type).list_price, 259900.0)
+        self.assertEqual(len(pricelist.item_ids), 2)
+
     def test_odoo_rate_source(self):
         self.engine_rule.rate_source = 'odoo'
         self.env['mina.part.rate.update'].create({

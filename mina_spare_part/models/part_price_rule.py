@@ -302,7 +302,8 @@ class MinaPartPriceRule(models.Model):
             rule_result = rule.with_context(mina_part_log_source=source)._apply_prices(rule._get_products())
             for key, value in rule_result.items():
                 result[key] += value
-            history.filtered(lambda h: h.rule_id == rule).products_updated = rule_result['updated']
+            # The rate history is read-only for users: the counter is maintained by the system.
+            history.filtered(lambda h: h.rule_id == rule).sudo().products_updated = rule_result['updated']
         if background:
             for rule in background:
                 rule.write({
@@ -349,7 +350,7 @@ class MinaPartPriceRule(models.Model):
                     updated = rule._apply_prices(products)['updated']
                     rule.recompute_last_id = products[-1].id
                     if rule.recompute_history_id:
-                        rule.recompute_history_id.products_updated += updated
+                        rule.recompute_history_id.sudo().products_updated += updated
                 else:
                     rule.recompute_state = 'done'
                 remaining = self.env['product.template'].search_count(
