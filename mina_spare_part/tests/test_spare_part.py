@@ -185,6 +185,31 @@ class TestSparePart(TransactionCase):
         history = self.engine_rule.rate_history_ids
         self.assertEqual((history.old_rate, history.new_rate), (16000.0, 17000.0))
 
+    def test_import_without_rate_saves_parts_unpriced(self):
+        """A missing rate does not stop the import: the parts are saved without selling price,
+        which is computed by the rate update."""
+        self.engine_rule.manual_rate = 0.0
+        part_import = self._import([self.header, ["N-1", "Bearing", "", 10], ["N-2", "Seal", "", 20]])
+        self._import([self.header, ["N-3", "Rotor", "", 10]], part_type='airend')
+        self.assertEqual(part_import.state, 'done')
+        self.assertEqual((part_import.created_count, part_import.priced_count, part_import.no_rate_count), (2, 0, 2))
+        self.assertIn("2 part belum dihitung harga jualnya: Kurs manual pada setting harga", part_import.summary)
+        self.assertIn("Update Kurs", part_import.summary)
+        self.assertEqual(
+            part_import.line_ids.mapped('message'),
+            ["Harga jual belum dihitung: kurs belum diisi."] * 2,
+        )
+        bearing = self._part('N-1')
+        self.assertEqual((bearing.part_list_price, bearing.list_price), (10.0, 0.0))
+        # The Air End rule has a rate: its parts are priced.
+        self.assertAlmostEqual(self._part('N-3', 'airend').list_price, 231000.0)
+
+        self.env['mina.part.rate.update'].create({
+            'rule_id': self.engine_rule.id, 'new_rate': 16000.0, 'apply_same_currency': False,
+        }).action_confirm()
+        self.assertAlmostEqual(bearing.list_price, 231000.0)
+        self.assertAlmostEqual(self._part('N-2').list_price, 462000.0)
+
     def test_rate_update_by_spare_part_manager(self):
         """A Spare Part Administrator without other rights can update the rate, also when the
         prices are recomputed by the background job (which runs as that user)."""

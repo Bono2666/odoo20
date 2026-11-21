@@ -191,7 +191,9 @@ class MinaPartImport(models.Model):
     update_existing = fields.Boolean(string="Update Part yang Sudah Ada", default=True)
     apply_pricing = fields.Boolean(
         string="Hitung Harga Jual", default=True,
-        help="Hitung harga reseller dan end user dengan Setting Harga untuk part baru dan part yang harganya berubah.",
+        help="Hitung harga reseller dan end user dengan Setting Harga untuk part baru dan part yang harganya berubah. "
+             "Jika kurs setting harga belum diisi, part tetap disimpan tanpa harga jual: harga jual dihitung "
+             "saat kurs diisi lewat Update Kurs.",
     )
 
     line_ids = fields.One2many('mina.part.import.line', 'import_id', string="Hasil Import", readonly=True)
@@ -207,6 +209,8 @@ class MinaPartImport(models.Model):
     error_count = fields.Integer(string="Error", readonly=True, copy=False)
     priced_count = fields.Integer(string="Harga Jual Berubah", readonly=True, copy=False)
     unpriced_count = fields.Integer(readonly=True, copy=False)
+    no_rate_count = fields.Integer(readonly=True, copy=False)
+    no_rate_warning = fields.Text(readonly=True, copy=False)
     change_log_count = fields.Integer(compute='_compute_change_log_count')
     file_warning = fields.Text(readonly=True, copy=False)
     summary = fields.Text(string="Catatan", readonly=True, copy=False)
@@ -749,15 +753,33 @@ class MinaPartImport(models.Model):
         (to_sync_vendor | created).with_context(**{SKIP_VENDOR_SYNC_KEY: False})._mina_sync_vendor_prices()
 
         priced = unpriced = 0
+        no_rate = self.env['product.template']
+        no_rate_messages = (self.no_rate_warning or '').splitlines()
         if self.apply_pricing and to_price:
             rules = self.env['mina.part.price.rule'].with_company(self.company_id)._get_rules_by_category()
             for rule, products in to_price.grouped(lambda p: p._mina_find_price_rule(rules)).items():
                 if not rule:
                     unpriced += len(products)
                 elif rule.apply_on_import:
+                    # A missing rate does not stop the import: the parts are saved without selling
+                    # price, which is computed by the next rate update.
+                    for currency, group in products.grouped(lambda p: p.part_currency_id or rule.currency_id).items():
+                        try:
+                            rule._get_rate(currency)
+                        except UserError as error:
+                            products -= group
+                            no_rate |= group
+                            if str(error) not in no_rate_messages:
+                                no_rate_messages.append(str(error))
                     priced += rule.with_context(**{LOG_SOURCE_KEY: 'import', LOG_IMPORT_KEY: self.id})._apply_prices(
                         products,
                     )['updated']
+        if no_rate:
+            note = self.env._("Harga jual belum dihitung: kurs belum diisi.")
+            no_rate_ids = set(no_rate.ids)
+            for vals in line_vals:
+                if vals.get('product_tmpl_id') in no_rate_ids:
+                    vals['message'] = f"{vals['message']}\n{note}" if vals.get('message') else note
 
         def count(status):
             return sum(1 for vals in line_vals if vals['status'] == status)
@@ -773,6 +795,8 @@ class MinaPartImport(models.Model):
             'error_count': self.error_count + count('error'),
             'priced_count': self.priced_count + priced,
             'unpriced_count': self.unpriced_count + unpriced,
+            'no_rate_count': self.no_rate_count + len(no_rate),
+            'no_rate_warning': '\n'.join(no_rate_messages) or False,
         })
 
     def _finalize(self):
@@ -801,6 +825,12 @@ class MinaPartImport(models.Model):
             summary.append(self.env._(
                 "%s part belum dihitung harga jualnya karena belum ada Setting Harga untuk kategorinya.",
                 self.unpriced_count,
+            ))
+        if self.no_rate_count:
+            summary.append(self.env._(
+                "%(count)s part belum dihitung harga jualnya: %(reason)s "
+                "Isi kurs lewat tombol Update Kurs di Setting Harga, harga jual part akan dihitung ulang.",
+                count=self.no_rate_count, reason=' '.join(self.no_rate_warning.splitlines()),
             ))
         self.write({'state': 'done', 'summary': '\n'.join(summary) or False})
 
