@@ -20,6 +20,43 @@
                     Harga jual spare part dikunci: dihitung dari Setting Harga.
                 </div>
             </div>
+            <page name="inventory" position="after">
+                <page string="Stok &amp; Barang Masuk" name="mina_stock" invisible="not is_storable or not id">
+                    <group string="Stok Mina per Lokasi">
+                        <field name="mina_stock_quant_ids" nolabel="1" colspan="2" readonly="1">
+                            <list create="0" delete="0">
+                                <field name="location_id"/>
+                                <field name="lot_id" groups="stock.group_production_lot" optional="show"/>
+                                <field name="quantity" string="On Hand" sum="Total"/>
+                                <field name="reserved_quantity" string="Dipesan" sum="Total"/>
+                                <field name="available_quantity" string="Tersedia" sum="Total"/>
+                                <field name="uom_id" groups="uom.group_uom" string="Satuan"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Riwayat Barang Masuk">
+                        <field name="mina_incoming_move_line_ids" nolabel="1" colspan="2" readonly="1">
+                            <list create="0" delete="0" default_order="date desc, id desc" limit="20">
+                                <field name="date" string="Tanggal"/>
+                                <field name="reference" string="No. Penerimaan"/>
+                                <field name="mina_partner_id"/>
+                                <field name="mina_purchase_ref"/>
+                                <field name="location_id" string="Dari" optional="hide"/>
+                                <field name="location_dest_id" string="Lokasi"/>
+                                <field name="quantity" string="Qty" sum="Total"/>
+                                <field name="uom_id" groups="uom.group_uom" string="Satuan"/>
+                                <field name="mina_purchase_price" optional="show"/>
+                                <field name="mina_purchase_currency_id" optional="show" string="Mata Uang"/>
+                                <field name="mina_done_by_id" optional="show"/>
+                            </list>
+                        </field>
+                        <div colspan="2">
+                            <button name="action_mina_view_incoming" type="object" string="Lihat Semua Barang Masuk"
+                                    icon="fa-list" class="btn-link"/>
+                        </div>
+                    </group>
+                </page>
+            </page>
             <page name="general_information" position="after">
                 <page string="Spare Part" name="mina_spare_part" invisible="not part_type">
                     <group>

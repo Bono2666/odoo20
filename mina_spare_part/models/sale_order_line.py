@@ -9,6 +9,10 @@ class SaleOrderLine(models.Model):
     mina_part_stock_jpn = fields.Float(related='product_id.part_stock_jpn', string="Stock JPN")
     mina_part_lead_time = fields.Integer(related='product_id.part_lead_time', string="Lead Time Principal (Hari)")
     mina_substitute_count = fields.Integer(compute='_compute_mina_substitute_count', string="Jumlah Substitusi")
+    mina_qty_available = fields.Float(
+        related='product_id.qty_available', string="Stok Mina",
+        help="Stok Mina (on hand) di semua lokasi gudang. Klik ikon kubus untuk melihat stok per lokasi.",
+    )
     mina_part_replacement_id = fields.Many2one(
         'product.template', string="Part Pengganti", compute='_compute_mina_part_chain',
         help="Part substitusi terdekat (juga substitusi dari substitusi) yang sudah punya harga jual.",
@@ -50,6 +54,10 @@ class SaleOrderLine(models.Model):
         if message:
             return {'warning': {'title': self.env._("Part Substitusi"), 'message': message}}
         return None
+
+    def action_mina_view_stock(self):
+        self.ensure_one()
+        return self.product_id.action_mina_view_stock()
 
     def action_mina_open_substitute(self):
         self.ensure_one()

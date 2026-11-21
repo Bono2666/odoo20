@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_sale" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.mina.transaction.sale</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="sale.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <block name="quotation_order_setting_container" position="inside">
+                <setting id="mina_customer_category" company_dependent="1" string="Filter Customer"
+                         help="Kolom Customer di Quotation/Sales Order dan Invoice customer hanya menampilkan kontak dengan tag ini (termasuk sub-tag dan kontak di perusahaan bertag ini).">
+                    <field name="mina_customer_category_id" options="{'no_create': True}"/>
+                </setting>
+            </block>
+        </field>
+    </record>
+
+    <record id="res_config_settings_view_form_purchase" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.mina.transaction.purchase</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="purchase.res_config_settings_view_form_purchase"/>
+        <field name="arch" type="xml">
+            <block name="purchase_setting_container" position="inside">
+                <setting id="mina_supplier_category" company_dependent="1" string="Filter Vendor"
+                         help="Kolom Vendor di Purchase Order dan Vendor Bill hanya menampilkan kontak dengan tag ini (termasuk sub-tag dan kontak di perusahaan bertag ini).">
+                    <field name="mina_supplier_category_id" options="{'no_create': True}"/>
+                </setting>
+            </block>
+        </field>
+    </record>
+
+</odoo>

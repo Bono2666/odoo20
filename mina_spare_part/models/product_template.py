@@ -86,6 +86,14 @@ class ProductTemplate(models.Model):
     )
     part_change_log_ids = fields.One2many('mina.part.change.log', 'product_tmpl_id', string="Log Perubahan")
     part_change_log_count = fields.Integer(compute='_compute_part_change_log_count')
+    mina_stock_quant_ids = fields.Many2many(
+        'stock.quant', string="Stok per Lokasi", compute='_compute_mina_stock_quant_ids',
+        help="Stok Mina di setiap lokasi gudang.",
+    )
+    mina_incoming_move_line_ids = fields.Many2many(
+        'stock.move.line', string="Riwayat Barang Masuk", compute='_compute_mina_incoming_move_line_ids',
+        help="Barang yang masuk ke lokasi gudang: penerimaan dari vendor, penyesuaian stok, retur.",
+    )
 
     @api.depends('categ_id', 'part_type')
     @api.depends_context('company')
@@ -93,6 +101,22 @@ class ProductTemplate(models.Model):
         rules = self.env['mina.part.price.rule']._get_rules_by_category()
         for template in self:
             template.part_price_rule_id = template._mina_find_price_rule(rules)
+
+    def _compute_mina_stock_quant_ids(self):
+        Quant = self.env['stock.quant']
+        for template in self:
+            variants = template._origin.product_variant_ids
+            template.mina_stock_quant_ids = Quant.search([
+                ('product_id', 'in', variants.ids), ('location_id.usage', '=', 'internal'),
+            ]) if variants and template.is_storable else Quant
+
+    def _compute_mina_incoming_move_line_ids(self):
+        MoveLine = self.env['stock.move.line']
+        for template in self:
+            variants = template._origin.product_variant_ids
+            template.mina_incoming_move_line_ids = MoveLine.search(
+                MoveLine._mina_incoming_domain() + [('product_id', 'in', variants.ids)],
+            ) if variants and template.is_storable else MoveLine
 
     def _compute_part_change_log_count(self):
         counts = dict(self.env['mina.part.change.log']._read_group(
@@ -184,6 +208,20 @@ class ProductTemplate(models.Model):
         action = self.env['ir.actions.act_window']._for_xml_id('mina_spare_part.mina_part_change_log_action')
         action['domain'] = [('product_tmpl_id', '=', self.id)]
         action['context'] = {'default_product_tmpl_id': self.id}
+        return action
+
+    def action_mina_view_stock(self):
+        self.ensure_one()
+        return self.product_variant_ids.action_mina_view_stock()
+
+    def action_mina_view_incoming(self):
+        self.ensure_one()
+        action = self.env['ir.actions.act_window']._for_xml_id('mina_spare_part.mina_incoming_move_line_action')
+        action['domain'] = self.env['stock.move.line']._mina_incoming_domain() + [
+            ('product_id', 'in', self.product_variant_ids.ids),
+        ]
+        action['context'] = {}
+        action['name'] = self.env._("Barang Masuk: %s", self.display_name)
         return action
 
     # ------------------------------------------------------------------

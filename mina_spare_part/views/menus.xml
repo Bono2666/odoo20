@@ -19,6 +19,12 @@
               action="mina_part_import_action"
               sequence="20"/>
 
+    <menuitem id="mina_incoming_move_line_menu"
+              name="Barang Masuk"
+              parent="mina_spare_part_menu_root"
+              action="mina_incoming_move_line_action"
+              sequence="25"/>
+
     <menuitem id="mina_part_change_log_menu"
               name="Log Perubahan"
               parent="mina_spare_part_menu_root"

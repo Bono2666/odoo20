@@ -8,3 +8,4 @@ from . import part_rate_history
 from . import part_import
 from . import sale_order_line
 from . import purchase_order_line
+from . import stock_move

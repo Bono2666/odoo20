@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Stock of a product in each warehouse location (dialog from the sale order line) -->
+    <record id="mina_stock_quant_view_list" model="ir.ui.view">
+        <field name="name">stock.quant.list.mina.stock.location</field>
+        <field name="model">stock.quant</field>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <list string="Stok per Lokasi" create="0" edit="0" delete="0">
+                <field name="product_id" optional="hide"/>
+                <field name="location_id"/>
+                <field name="lot_id" groups="stock.group_production_lot" optional="show"/>
+                <field name="quantity" string="On Hand" sum="Total"/>
+                <field name="reserved_quantity" string="Dipesan" sum="Total"/>
+                <field name="available_quantity" string="Tersedia" sum="Total"/>
+                <field name="uom_id" groups="uom.group_uom" string="Satuan"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Incoming goods log -->
+    <record id="mina_incoming_move_line_view_list" model="ir.ui.view">
+        <field name="name">stock.move.line.list.mina.incoming</field>
+        <field name="model">stock.move.line</field>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <list string="Barang Masuk" create="0" edit="0" delete="0" default_order="date desc, id desc">
+                <field name="date" string="Tanggal"/>
+                <field name="reference" string="No. Penerimaan"/>
+                <field name="product_id"/>
+                <field name="lot_id" groups="stock.group_production_lot" optional="hide"/>
+                <field name="mina_partner_id"/>
+                <field name="mina_purchase_ref"/>
+                <field name="location_id" string="Dari" optional="show"/>
+                <field name="location_dest_id" string="Lokasi"/>
+                <field name="quantity" string="Qty" sum="Total"/>
+                <field name="uom_id" groups="uom.group_uom" string="Satuan"/>
+                <field name="mina_purchase_price" optional="show"/>
+                <field name="mina_purchase_currency_id" optional="show" string="Mata Uang"/>
+                <field name="mina_done_by_id" optional="show"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="mina_incoming_move_line_view_search" model="ir.ui.view">
+        <field name="name">stock.move.line.search.mina.incoming</field>
+        <field name="model">stock.move.line</field>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <search string="Barang Masuk">
+                <field name="product_id"/>
+                <field name="mina_partner_id"/>
+                <field name="reference" string="No. Penerimaan"/>
+                <field name="location_dest_id" string="Lokasi"/>
+                <filter string="Spare Part" name="part" domain="[('product_id.part_type', '!=', False)]"/>
+                <separator/>
+                <filter string="Dari Vendor" name="from_vendor" domain="[('location_id.usage', '=', 'supplier')]"/>
+                <filter string="Penyesuaian Stok" name="from_inventory" domain="[('location_id.usage', '=', 'inventory')]"/>
+                <filter string="Retur Customer" name="from_customer" domain="[('location_id.usage', '=', 'customer')]"/>
+                <separator/>
+                <filter string="Tanggal" name="date" date="date"/>
+                <group>
+                    <filter string="Part" name="groupby_product" context="{'group_by': 'product_id'}"/>
+                    <filter string="Vendor / Partner" name="groupby_partner" context="{'group_by': 'mina_partner_id'}"/>
+                    <filter string="Lokasi" name="groupby_location" context="{'group_by': 'location_dest_id'}"/>
+                    <filter string="Tanggal" name="groupby_date" context="{'group_by': 'date:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="mina_incoming_move_line_action" model="ir.actions.act_window">
+        <field name="name">Barang Masuk</field>
+        <field name="res_model">stock.move.line</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="mina_incoming_move_line_view_list"/>
+        <field name="search_view_id" ref="mina_incoming_move_line_view_search"/>
+        <field name="domain">[('state', '=', 'done'), ('location_dest_id.usage', '=', 'internal'), ('location_id.usage', 'not in', ('internal', 'transit'))]</field>
+        <field name="context">{'search_default_part': 1, 'create': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Belum ada barang masuk</p>
+            <p>Barang yang diterima dari vendor, penyesuaian stok, dan retur customer akan tercatat di sini.</p>
+        </field>
+    </record>
+
+</odoo>

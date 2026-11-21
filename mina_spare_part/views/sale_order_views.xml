@@ -9,6 +9,11 @@
             <xpath expr="//field[@name='order_line']/list//column[@name='product_and_description']" position="after">
                 <field name="mina_substitute_count" column_invisible="True"/>
                 <field name="mina_part_type" column_invisible="True"/>
+                <field name="is_storable" column_invisible="True"/>
+                <field name="mina_qty_available" optional="show" invisible="not is_storable"
+                       decoration-danger="is_storable and mina_qty_available &lt;= 0"/>
+                <button name="action_mina_view_stock" type="object" icon="fa-cubes"
+                        title="Stok per Lokasi" invisible="not is_storable"/>
                 <field name="mina_part_stock_jpn" string="Stock JPN" optional="show" invisible="not mina_part_type"/>
                 <field name="mina_part_lead_time" string="Lead Time" optional="show" invisible="not mina_part_type"/>
                 <field name="mina_part_availability" optional="show" widget="badge"
@@ -26,6 +31,13 @@
             </xpath>
             <xpath expr="//field[@name='order_line']/form//div[@name='lead']" position="after">
                 <field name="mina_part_type" invisible="1"/>
+                <field name="is_storable" invisible="1"/>
+                <label for="mina_qty_available" invisible="not is_storable"/>
+                <div class="o_row" invisible="not is_storable">
+                    <field name="mina_qty_available"/>
+                    <button name="action_mina_view_stock" type="object" icon="fa-cubes"
+                            string="Per Lokasi" class="btn-link"/>
+                </div>
                 <field name="mina_part_stock_jpn" invisible="not mina_part_type"/>
                 <field name="mina_part_lead_time" invisible="not mina_part_type"/>
                 <field name="mina_part_availability" invisible="not mina_part_type" widget="badge"

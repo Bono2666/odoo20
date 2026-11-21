@@ -679,6 +679,64 @@ class TestSparePart(TransactionCase):
         self.env['stock.quant']._update_available_quantity(template.product_variant_id, warehouse.lot_stock_id, quantity)
         self.env.invalidate_all()
 
+    def test_stock_per_location_and_incoming_log(self):
+        self._import([self.header, ["W-1", "Bearing", "", 10]])
+        part = self._part('W-1')
+        product = part.product_variant_id
+        warehouse = self.env['stock.warehouse'].search([('company_id', '=', self.company.id)], limit=1)
+        rack = self.env['stock.location'].create({'name': "Rak A1", 'location_id': warehouse.lot_stock_id.id})
+        stock_user = self.env['res.users'].create({
+            'name': "Gudang", 'login': 'mina_stock_user',
+            'group_ids': [Command.set([self.env.ref('stock.group_stock_user').id, self.env.ref('purchase.group_purchase_user').id])],
+        })
+
+        # Receipt of a purchase order, validated by the warehouse user.
+        vendor = self.env['res.partner'].create({'name': "Principal"})
+        order = self.env['purchase.order'].create({
+            'partner_id': vendor.id,
+            'order_line': [Command.create({'product_id': product.id, 'product_qty': 5, 'price_unit': 150000.0})],
+        })
+        order.button_confirm()
+        picking = order.picking_ids.with_user(stock_user)
+        picking.move_ids.quantity = 5
+        picking.button_validate()
+        self.assertEqual(picking.state, 'done')
+        # Inventory adjustment in another location.
+        self.env['stock.quant'].with_context(inventory_mode=True).create({
+            'product_id': product.id, 'location_id': rack.id, 'inventory_quantity': 2,
+        }).action_apply_inventory()
+        self.env.invalidate_all()
+
+        quants = part.mina_stock_quant_ids
+        self.assertEqual(sorted(zip(quants.location_id.mapped('name'), quants.mapped('quantity'))),
+                         sorted([(warehouse.lot_stock_id.name, 5.0), ("Rak A1", 2.0)]))
+
+        incoming = part.mina_incoming_move_line_ids.sorted('id')
+        self.assertEqual(incoming.mapped('quantity'), [5.0, 2.0])
+        receipt, adjustment = incoming
+        self.assertEqual(receipt.mina_partner_id, vendor)
+        self.assertEqual(receipt.mina_purchase_ref, order.name)
+        self.assertAlmostEqual(receipt.mina_purchase_price, 150000.0)
+        self.assertEqual(receipt.mina_done_by_id, stock_user)
+        self.assertEqual(receipt.location_dest_id, warehouse.lot_stock_id)
+        self.assertEqual(adjustment.location_id.usage, 'inventory')
+        self.assertEqual(adjustment.location_dest_id, rack)
+        action = part.action_mina_view_incoming()
+        self.assertEqual(self.env['stock.move.line'].search(action['domain']), incoming)
+
+        # Sale order line: stock of Mina and stock per location.
+        customer = self.env['res.partner'].create({'name': "Customer"})
+        sale = self.env['sale.order'].create({
+            'partner_id': customer.id,
+            'order_line': [Command.create({'product_id': product.id, 'product_uom_qty': 1})],
+        })
+        line = sale.order_line
+        self.assertEqual(line.mina_qty_available, 7.0)
+        action = line.action_mina_view_stock()
+        self.assertEqual(action['res_model'], 'stock.quant')
+        self.assertEqual(self.env['stock.quant'].search(action['domain']), quants)
+        self.env['ir.ui.view']._validate_custom_views('mina_spare_part')
+
     def test_part_categories_use_average_cost(self):
         for categ in (self.engine_categ, self.airend_categ, self.engine_categ.parent_id):
             self.assertEqual(categ.property_cost_method, 'average')
